@@ -83,6 +83,9 @@ from app.api.v1.admin.audit import router as admin_audit_router
 from app.api.v1.admin.analytics import router as admin_analytics_router
 from app.api.v1.admin.content_policy import router as admin_policy_router
 from app.api.v1.admin.models import router as admin_models_router
+from app.api.v1.files import router as files_router
+from app.api.v1.search import router as search_router
+from app.api.v1.knowledge_bases import router as kb_router
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
@@ -96,6 +99,9 @@ app.include_router(admin_audit_router, prefix="/api/v1")
 app.include_router(admin_analytics_router, prefix="/api/v1")
 app.include_router(admin_policy_router, prefix="/api/v1")
 app.include_router(admin_models_router, prefix="/api/v1")
+app.include_router(files_router, prefix="/api/v1")
+app.include_router(search_router, prefix="/api/v1")
+app.include_router(kb_router, prefix="/api/v1")
 
 
 @app.get("/")

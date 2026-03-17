@@ -5,6 +5,7 @@ from app.models.api_key import ApiKey
 from app.models.audit import AuditLog
 from app.models.usage import UsageLog
 from app.models.quota import Quota
+from app.models.file import File, FileChunk, KnowledgeBase
 
 __all__ = [
     "Organization", "Division", "Department", "Team",

@@ -1,0 +1,1 @@
+This is a test document about enterprise AI governance. CognitionShift provides secure, governed access to frontier AI models. The platform includes features like quota management, content safety scanning, and comprehensive audit logging.
