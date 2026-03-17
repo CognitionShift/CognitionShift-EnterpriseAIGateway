@@ -164,10 +164,10 @@ export async function listConversations(): Promise<Conversation[]> {
   return resp.json();
 }
 
-export async function createConversation(title?: string, modelId?: string): Promise<Conversation> {
+export async function createConversation(title?: string, modelId?: string, systemPrompt?: string): Promise<Conversation> {
   const resp = await fetchWithAuth("/api/v1/conversations", {
     method: "POST",
-    body: JSON.stringify({ title, model_id: modelId }),
+    body: JSON.stringify({ title, model_id: modelId, system_prompt: systemPrompt }),
   });
   if (!resp.ok) throw new Error("Failed to create conversation");
   return resp.json();

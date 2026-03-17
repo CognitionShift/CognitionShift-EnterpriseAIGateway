@@ -16,6 +16,7 @@ import {
 import { Sidebar } from "@/components/sidebar";
 import { ChatView } from "@/components/chat-view";
 import { ModelSelector } from "@/components/model-selector";
+import { SystemPromptModal } from "@/components/system-prompt-modal";
 
 export default function ChatPage() {
   const { user, loading, logout } = useAuth();
@@ -27,6 +28,8 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -84,7 +87,7 @@ export default function ChatPage() {
 
   const handleNewChat = async () => {
     try {
-      const conv = await createConversation(undefined, selectedModel);
+      const conv = await createConversation(undefined, selectedModel, systemPrompt || undefined);
       setConversations((prev) => [conv, ...prev]);
       setActiveConvId(conv.id);
       setMessages([]);
@@ -115,7 +118,7 @@ export default function ChatPage() {
       // Create conversation if none active
       if (!convId) {
         try {
-          const conv = await createConversation(undefined, selectedModel);
+          const conv = await createConversation(undefined, selectedModel, systemPrompt || undefined);
           convId = conv.id;
           setConversations((prev) => [conv, ...prev]);
           setActiveConvId(conv.id);
@@ -241,11 +244,26 @@ export default function ChatPage() {
             </h2>
           </div>
 
-          <ModelSelector
-            models={models}
-            selected={selectedModel}
-            onChange={setSelectedModel}
-          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSystemPrompt(true)}
+              className="px-2 py-1 rounded-lg text-xs transition-colors"
+              style={{
+                backgroundColor: systemPrompt ? "var(--accent)" : "var(--bg-tertiary)",
+                color: systemPrompt ? "white" : "var(--text-secondary)",
+                border: "1px solid var(--border)",
+              }}
+              aria-label="Set system prompt"
+              title={systemPrompt ? "System prompt active" : "Set system prompt"}
+            >
+              🎯 System
+            </button>
+            <ModelSelector
+              models={models}
+              selected={selectedModel}
+              onChange={setSelectedModel}
+            />
+          </div>
         </header>
 
         {/* Chat area */}
@@ -256,6 +274,14 @@ export default function ChatPage() {
           onSend={handleSendMessage}
         />
       </main>
+
+      {/* System Prompt Modal */}
+      <SystemPromptModal
+        isOpen={showSystemPrompt}
+        initialPrompt={systemPrompt}
+        onSave={setSystemPrompt}
+        onClose={() => setShowSystemPrompt(false)}
+      />
     </div>
   );
 }
