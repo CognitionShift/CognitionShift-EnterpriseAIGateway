@@ -25,7 +25,7 @@ interface UserItem {
 
 export default function AdminPage() {
   const { user, loading, logout } = useAuth();
-  const [tab, setTab] = useState<"overview" | "users" | "models" | "safety" | "audit">("overview");
+  const [tab, setTab] = useState<"overview" | "users" | "models" | "safety" | "audit" | "analytics">("overview");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [models, setModels] = useState<any[]>([]);
