@@ -200,6 +200,13 @@ async def send_message(
                 )
                 save_db.add(assistant_msg)
 
+                # Determine provider dynamically
+                try:
+                    _, prov, _ = model_router.resolve_model(response.model)
+                    prov_name = prov.provider_name
+                except Exception:
+                    prov_name = "unknown"
+
                 # Usage log
                 usage = UsageLog(
                     org_id=tenant.org_id,
@@ -207,7 +214,7 @@ async def send_message(
                     conversation_id=conversation_id,
                     message_id=assistant_msg.id,
                     model_id=response.model,
-                    provider="anthropic",
+                    provider=prov_name,
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
                     cost_usd=assistant_msg.cost_usd or 0,
