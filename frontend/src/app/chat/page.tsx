@@ -19,6 +19,8 @@ import { ModelSelector } from "@/components/model-selector";
 import { SystemPromptModal } from "@/components/system-prompt-modal";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
+import { ConversationListSkeleton, MessageListSkeleton } from "@/components/skeleton";
+import { useToast } from "@/components/toast";
 
 export default function ChatPage() {
   const { user, loading, logout } = useAuth();
@@ -32,6 +34,9 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+  const [convsLoading, setConvsLoading] = useState(true);
+  const [msgsLoading, setMsgsLoading] = useState(false);
+  const { addToast } = useToast();
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -58,11 +63,15 @@ export default function ChatPage() {
   }, [activeConvId]);
 
   const loadConversations = async () => {
+    setConvsLoading(true);
     try {
       const convs = await listConversations();
       setConversations(convs);
     } catch (err) {
       console.error("Failed to load conversations:", err);
+      addToast("Failed to load conversations", "error");
+    } finally {
+      setConvsLoading(false);
     }
   };
 
@@ -71,7 +80,9 @@ export default function ChatPage() {
       const m = await listModels();
       setModels(m);
       if (m.length > 0 && !selectedModel) {
-        setSelectedModel(m[0].id);
+        const saved = localStorage.getItem("default_model");
+        const defaultId = saved && m.some((x) => x.id === saved) ? saved : m[0].id;
+        setSelectedModel(defaultId);
       }
     } catch (err) {
       console.error("Failed to load models:", err);
@@ -79,11 +90,15 @@ export default function ChatPage() {
   };
 
   const loadMessages = async (convId: string) => {
+    setMsgsLoading(true);
     try {
       const msgs = await listMessages(convId);
       setMessages(msgs);
     } catch (err) {
       console.error("Failed to load messages:", err);
+      addToast("Failed to load messages", "error");
+    } finally {
+      setMsgsLoading(false);
     }
   };
 
@@ -229,6 +244,7 @@ export default function ChatPage() {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         user={user}
         onLogout={logout}
+        loading={convsLoading}
       />
 
       {/* Main content */}

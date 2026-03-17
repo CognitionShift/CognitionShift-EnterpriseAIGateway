@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Conversation } from "@/lib/api";
+import { ConversationListSkeleton } from "@/components/skeleton";
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -13,6 +14,7 @@ interface SidebarProps {
   onToggle: () => void;
   user: { name: string; email: string; role: string };
   onLogout: () => void;
+  loading?: boolean;
 }
 
 export function Sidebar({
@@ -25,6 +27,7 @@ export function Sidebar({
   onToggle,
   user,
   onLogout,
+  loading = false,
 }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
 
@@ -97,12 +100,14 @@ export function Sidebar({
 
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto px-2">
-        {conversations.length === 0 && (
+        {loading ? (
+          <ConversationListSkeleton />
+        ) : conversations.length === 0 ? (
           <p className="text-center text-sm py-8" style={{ color: "var(--text-secondary)" }}>
             No conversations yet
           </p>
-        )}
-        {conversations.map((conv) => (
+        ) : null}
+        {!loading && conversations.map((conv) => (
           <div
             key={conv.id}
             className="group flex items-center gap-2 rounded-lg px-3 py-2 mb-0.5 cursor-pointer transition-colors"
