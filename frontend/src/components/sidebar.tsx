@@ -97,7 +97,7 @@ export function Sidebar({
 
       {/* Footer */}
       <div style={{ borderTop: "1px solid var(--border)" }}>
-        {/* Dashboard link */}
+        {/* Navigation links */}
         <a
           href="/dashboard"
           className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
@@ -105,6 +105,15 @@ export function Sidebar({
         >
           📊 Usage Dashboard
         </a>
+        {user.role === "admin" && (
+          <a
+            href="/admin"
+            className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            ⚙️ Admin Console
+          </a>
+        )}
 
         {/* User info */}
         <div className="px-4 py-3 flex items-center justify-between">
