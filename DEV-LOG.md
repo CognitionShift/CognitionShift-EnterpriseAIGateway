@@ -59,14 +59,15 @@ Systematically closed gaps between design docs and codebase across all 4 tiers. 
 - **Soft delete filtering**: All user-facing queries confirmed to filter `deleted_at IS NULL`
 
 ### Test Summary
-- **67 tests passing**, 2 skipped (model detail tests that need real API key)
-- 18 new tests covering response envelopes, CRUD, pagination, resilience, and helpers
+- **73 tests passing**, 2 skipped (model detail tests that need real API key)
+- 24 new tests: response envelopes, CRUD, pagination, resilience, providers, helpers
 - All 51 original tests still pass (zero regressions)
 
 ### Files Changed
-- Backend: 15 files modified, 8 new files
+- Backend: 18 files modified, 11 new files
 - Frontend: 12 files modified, 6 new files
 - Migrations: 2 new (safety_events table, RLS + audit triggers)
+- 8 git commits
 
 ### Not Yet Done (lower priority)
 - Webhook event emission (needs event bus infrastructure)
