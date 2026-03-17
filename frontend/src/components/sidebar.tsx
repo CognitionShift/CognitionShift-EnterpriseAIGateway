@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Conversation } from "@/lib/api";
 
 interface SidebarProps {
@@ -25,15 +26,52 @@ export function Sidebar({
   user,
   onLogout,
 }: SidebarProps) {
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  // Close sidebar on mobile when clicking outside
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (window.innerWidth >= 768) return; // Only on mobile
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+        onToggle();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isOpen, onToggle]);
+
+  // Focus management: when sidebar opens, focus the new chat button
+  useEffect(() => {
+    if (isOpen && sidebarRef.current) {
+      const firstBtn = sidebarRef.current.querySelector("button");
+      firstBtn?.focus();
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
+  const handleSelect = (id: string) => {
+    onSelect(id);
+    // Close on mobile after selection
+    if (window.innerWidth < 768) onToggle();
+  };
+
   return (
-    <aside
-      className="w-72 flex flex-col shrink-0 h-full"
-      style={{ backgroundColor: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}
-      role="navigation"
-      aria-label="Conversation list"
-    >
+    <>
+      {/* Mobile overlay backdrop */}
+      <div
+        className="fixed inset-0 bg-black/50 z-30 md:hidden"
+        onClick={onToggle}
+        aria-hidden="true"
+      />
+      <aside
+        ref={sidebarRef}
+        className="w-72 flex flex-col shrink-0 h-full fixed md:relative z-40 md:z-auto"
+        style={{ backgroundColor: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}
+        role="navigation"
+        aria-label="Conversation list"
+      >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
         <span className="text-sm font-bold">⚡ CognitionShift</span>
@@ -71,10 +109,10 @@ export function Sidebar({
             style={{
               backgroundColor: conv.id === activeConvId ? "var(--bg-tertiary)" : "transparent",
             }}
-            onClick={() => onSelect(conv.id)}
+            onClick={() => handleSelect(conv.id)}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => e.key === "Enter" && onSelect(conv.id)}
+            onKeyDown={(e) => e.key === "Enter" && handleSelect(conv.id)}
             aria-current={conv.id === activeConvId ? "page" : undefined}
           >
             <span className="flex-1 text-sm truncate">
@@ -154,5 +192,6 @@ export function Sidebar({
         </div>
       </div>
     </aside>
+    </>
   );
 }

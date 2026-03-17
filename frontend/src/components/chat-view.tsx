@@ -52,10 +52,32 @@ export function ChatView({ messages, streaming, streamContent, onSend }: ChatVie
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-3xl mx-auto space-y-6">
           {messages.length === 0 && !streaming && (
-            <div className="text-center py-20">
-              <h2 className="text-2xl font-semibold mb-2">⚡ CognitionShift</h2>
-              <p style={{ color: "var(--text-secondary)" }}>
-                Start a conversation with AI. Type your message below.
+            <div className="text-center py-16">
+              <div className="text-5xl mb-4">⚡</div>
+              <h2 className="text-2xl font-semibold mb-3">CognitionShift</h2>
+              <p className="text-base mb-8" style={{ color: "var(--text-secondary)" }}>
+                Enterprise AI at your fingertips. Ask anything.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
+                {[
+                  { icon: "📝", text: "Draft a project proposal" },
+                  { icon: "🔍", text: "Analyze a dataset" },
+                  { icon: "💡", text: "Brainstorm solutions" },
+                  { icon: "📊", text: "Create a report summary" },
+                ].map((suggestion, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onSend(suggestion.text)}
+                    className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm text-left transition-colors hover:bg-[var(--bg-tertiary)]"
+                    style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                  >
+                    <span>{suggestion.icon}</span>
+                    <span>{suggestion.text}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs mt-6" style={{ color: "var(--text-secondary)" }}>
+                Press <kbd className="px-1 py-0.5 rounded text-[10px]" style={{ backgroundColor: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>Ctrl+N</kbd> for new chat • <kbd className="px-1 py-0.5 rounded text-[10px]" style={{ backgroundColor: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>Ctrl+B</kbd> toggle sidebar
               </p>
             </div>
           )}
@@ -81,19 +103,22 @@ export function ChatView({ messages, streaming, streamContent, onSend }: ChatVie
             />
           )}
 
-          {/* Streaming indicator */}
+          {/* Typing indicator */}
           {streaming && !streamContent && (
-            <div className="flex gap-3">
+            <div className="flex gap-3" role="status" aria-label="AI is thinking">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0"
                 style={{ backgroundColor: "var(--accent)" }}
               >
                 AI
               </div>
-              <div className="flex items-center gap-1 py-2">
-                <span className="animate-pulse" style={{ color: "var(--text-secondary)" }}>
-                  Thinking...
-                </span>
+              <div
+                className="flex items-center gap-1.5 px-4 py-3 rounded-2xl"
+                style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+              >
+                <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: "var(--text-secondary)", animationDelay: "0ms" }} />
+                <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: "var(--text-secondary)", animationDelay: "150ms" }} />
+                <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: "var(--text-secondary)", animationDelay: "300ms" }} />
               </div>
             </div>
           )}
