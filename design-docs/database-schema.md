@@ -140,7 +140,7 @@ CREATE TABLE messages (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     org_id          UUID NOT NULL REFERENCES organizations(id),
-    parent_id       UUID REFERENCES messages(id),  -- for branching (edit/regenerate)
+    sequence        INTEGER NOT NULL,  -- monotonically increasing within conversation
     role            TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
     content         TEXT NOT NULL,
     model_id        TEXT,  -- which model generated this (NULL for user messages)
@@ -162,16 +162,8 @@ CREATE TABLE messages (
     
     metadata        JSONB NOT NULL DEFAULT '{}',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at      TIMESTAMPTZ
-);
-
--- Active branch tracking: which message is the "current" leaf in each conversation
--- This supports branching without losing history
-CREATE TABLE conversation_branches (
-    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    active_leaf_id  UUID NOT NULL REFERENCES messages(id),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (conversation_id)
+    deleted_at      TIMESTAMPTZ,
+    UNIQUE(conversation_id, sequence)
 );
 
 -- Tags for organizing conversations
@@ -539,9 +531,8 @@ CREATE INDEX idx_conversations_user ON conversations (user_id, created_at DESC) 
 CREATE INDEX idx_conversations_team ON conversations (team_id, created_at DESC) WHERE deleted_at IS NULL AND team_id IS NOT NULL;
 CREATE INDEX idx_conversations_org ON conversations (org_id, created_at DESC) WHERE deleted_at IS NULL;
 
--- Message lookups
-CREATE INDEX idx_messages_conversation ON messages (conversation_id, created_at ASC) WHERE deleted_at IS NULL;
-CREATE INDEX idx_messages_parent ON messages (parent_id) WHERE parent_id IS NOT NULL;
+-- Message lookups (linear, ordered by sequence)
+CREATE INDEX idx_messages_conversation ON messages (conversation_id, sequence ASC) WHERE deleted_at IS NULL;
 
 -- Usage analytics (the most queried table)
 CREATE INDEX idx_usage_log_analytics ON usage_log (org_id, created_at DESC);

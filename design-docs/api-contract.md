@@ -63,14 +63,6 @@ DELETE /api/v1/conversations/:id                # Soft-delete conversation
 # Messages
 POST   /api/v1/conversations/:id/messages       # Send message (returns SSE stream)
 GET    /api/v1/conversations/:id/messages       # Get message history (paginated)
-POST   /api/v1/conversations/:id/messages/:id/regenerate  # Regenerate response (creates branch)
-POST   /api/v1/conversations/:id/messages/:id/edit        # Edit user message (creates branch)
-DELETE /api/v1/conversations/:id/messages/:id   # Delete a message
-
-# Branches
-GET    /api/v1/conversations/:id/branches       # List branch points
-POST   /api/v1/conversations/:id/branches/:message_id/switch  # Switch active branch
-
 # Sharing
 POST   /api/v1/conversations/:id/share          # Share with team/department
 DELETE /api/v1/conversations/:id/share          # Revoke sharing
