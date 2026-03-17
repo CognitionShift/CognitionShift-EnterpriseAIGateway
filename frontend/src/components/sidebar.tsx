@@ -99,6 +99,20 @@ export function Sidebar({
       <div style={{ borderTop: "1px solid var(--border)" }}>
         {/* Navigation links */}
         <a
+          href="/agents"
+          className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          🤖 AI Agents
+        </a>
+        <a
+          href="/files"
+          className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          📁 Files & Knowledge
+        </a>
+        <a
           href="/dashboard"
           className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
           style={{ color: "var(--text-secondary)" }}

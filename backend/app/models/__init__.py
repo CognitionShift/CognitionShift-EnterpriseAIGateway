@@ -6,6 +6,7 @@ from app.models.audit import AuditLog
 from app.models.usage import UsageLog
 from app.models.quota import Quota
 from app.models.file import File, FileChunk, KnowledgeBase
+from app.models.agent import AgentTemplate, AgentExecution
 
 __all__ = [
     "Organization", "Division", "Department", "Team",
