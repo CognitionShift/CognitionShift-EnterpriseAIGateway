@@ -8,6 +8,7 @@ from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, Refre
 from app.services.auth import register_user, authenticate_user, generate_tokens, AuthError
 from app.middleware.tenant import get_current_user, TenantContext
 from app.core.security import decode_token
+from app.api.v1.webhooks import dispatch_webhook_event
 from jose import JWTError
 
 logger = structlog.get_logger()
@@ -21,6 +22,11 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
         tokens = generate_tokens(user)
         logger.info("user_registered", email=req.email, org=req.org_slug)
+        import asyncio
+        asyncio.create_task(dispatch_webhook_event(
+            org_id=user.org_id, event="user.registered",
+            payload={"user_id": str(user.id), "email": user.email},
+        ))
         return tokens
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -33,6 +39,11 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
         tokens = generate_tokens(user)
         logger.info("user_login", email=req.email)
+        import asyncio
+        asyncio.create_task(dispatch_webhook_event(
+            org_id=user.org_id, event="user.login",
+            payload={"user_id": str(user.id), "email": user.email},
+        ))
         return tokens
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

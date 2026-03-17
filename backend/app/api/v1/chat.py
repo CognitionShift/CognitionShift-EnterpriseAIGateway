@@ -19,6 +19,7 @@ from app.models.usage import UsageLog
 from app.schemas.chat import ChatMessageRequest
 from app.services.providers.base import ChatMessage, StreamChunk
 from app.services.stream_manager import stream_manager
+from app.api.v1.webhooks import dispatch_webhook_event
 
 logger = structlog.get_logger()
 router = APIRouter(tags=["chat"])
@@ -81,6 +82,12 @@ async def send_message(
             severity="high",
             direction="inbound",
             content_snippet=req.content[:200],
+        ))
+        # Webhook: safety.blocked
+        asyncio.create_task(dispatch_webhook_event(
+            org_id=tenant.org_id,
+            event="safety.blocked",
+            payload={"user_id": str(tenant.user_id), "flags": safety.flags, "action": "blocked"},
         ))
         raise HTTPException(
             status_code=422,
@@ -207,6 +214,20 @@ async def send_message(
                 )
                 save_db.add(usage)
                 await save_db.commit()
+
+            # Webhook: chat.message
+            import asyncio
+            asyncio.create_task(dispatch_webhook_event(
+                org_id=tenant.org_id,
+                event="chat.message",
+                payload={
+                    "conversation_id": str(conversation_id),
+                    "user_id": str(tenant.user_id),
+                    "model": response.model,
+                    "input_tokens": response.input_tokens,
+                    "output_tokens": response.output_tokens,
+                },
+            ))
 
             return {
                 "data": {
@@ -340,6 +361,20 @@ async def stream_response(
                 )
                 save_db.add(usage)
                 await save_db.commit()
+
+            # Webhook: chat.message
+            import asyncio
+            asyncio.create_task(dispatch_webhook_event(
+                org_id=org_id,
+                event="chat.message",
+                payload={
+                    "conversation_id": str(conversation_id),
+                    "user_id": str(user_id),
+                    "model": actual_model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                },
+            ))
         except Exception as e:
             logger.error("post_stream_save_error", error=str(e))
 
