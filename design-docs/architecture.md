@@ -422,27 +422,51 @@ Accessibility is a design constraint, not a retrofit:
 
 | Layer | Technology | Rationale |
 |-------|-----------|-----------|
-| **Frontend** | SvelteKit | Fast, accessible, SSR, small bundle size |
-| **API** | Go or Rust (gateway core) | Performance-critical proxy layer needs low latency |
-| **Business Logic** | Python (FastAPI) | ML ecosystem, RAG pipeline, agent orchestration |
-| **Identity** | Keycloak | SAML + OIDC + LDAP + SCIM in one |
-| **Database** | PostgreSQL + pgvector | Relational + vector search, proven at scale |
-| **Cache/Queue** | Redis | Session management, rate limiting, job queues |
-| **Object Storage** | S3 (or compatible) | Files, audit logs, backups |
-| **Container Orchestration** | EKS / Fargate | Agent execution, application scaling |
-| **Secrets** | AWS Secrets Manager / Vault | Agent credential injection |
-| **Observability** | OpenTelemetry + Grafana | Tracing, metrics, dashboards |
-| **IaC** | Terraform | Reproducible infrastructure |
-| **CI/CD** | GitHub Actions | Automated testing, deployment |
+| **Frontend** | Next.js (React) + TypeScript | Mature ecosystem, extensive accessibility libraries (Radix UI, React Aria), large talent pool, SSR + SPA hybrid |
+| **Backend** | Python (FastAPI) | Single backend language for entire platform — gateway core, model router, RAG, content safety, agent orchestration, admin API. Async/uvicorn for concurrency. Full ML/AI ecosystem access. |
+| **Identity** | Keycloak | Only mature open-source solution covering SAML 2.0 + OIDC + LDAP + SCIM in one deployment |
+| **Database** | PostgreSQL + pgvector | Relational + vector search in one database. No separate vector DB to operate. Proven at scale. |
+| **Cache/Queue** | Redis | Session management, rate limiting, job queues, pub/sub |
+| **Object Storage** | S3 (or compatible) | Files, audit logs, backups. Encrypted, versioned. |
+| **Container Orchestration** | EKS | Agent execution, application scaling. Kubernetes-native network policies for agent isolation. |
+| **Secrets** | AWS Secrets Manager | Agent credential injection. Zero operational overhead in AWS-native deployments. |
+| **Observability** | OpenTelemetry + Grafana | Open standards, self-hostable, distributed tracing across all components |
+| **IaC** | Terraform | Reproducible, auditable infrastructure |
+| **CI/CD** | GitHub Actions | Integrated with source repository |
 
-### Language Choice: Gateway Core
+### Architecture Pattern
 
-The model router / proxy layer is the hottest path in the system. Every request flows through it. Two options:
+```
+Browser → Next.js (SSR shell + React SPA)
+              │
+              │  REST API calls
+              ▼
+         FastAPI (Python)
+              │
+              ├── Model Router (async HTTP proxy to all providers)
+              ├── Content Safety (PII/DLP/toxicity scanning)
+              ├── Governance Engine (quotas, budgets, cost tracking)
+              ├── RAG Pipeline (upload, parse, embed, retrieve)
+              ├── Agent Orchestrator (EKS provisioning, lifecycle)
+              ├── Admin API (users, groups, policies, analytics)
+              └── Audit Logger (append-only to S3)
+              │
+              ├── PostgreSQL + pgvector (data + embeddings)
+              ├── Redis (cache, sessions, rate limits, queues)
+              └── S3 (files, audit logs)
+```
 
-- **Go** — Excellent for network services, goroutines for concurrency, simple deployment (single binary). Strong standard library for HTTP proxying.
-- **Rust** — Maximum performance, memory safety, but steeper learning curve and slower iteration.
+**Clean separation:** Next.js owns the UI and nothing else. FastAPI owns all business logic, data access, and external integrations. The frontend is a client of the backend API — no business logic split across layers.
 
-**Recommendation:** Go for the gateway core (proxy, routing, rate limiting, DLP scanning). Python for everything else (RAG, agent orchestration, admin API, analytics).
+### Design Decisions
+
+**Single backend language (Python).** The gateway core, model router, RAG pipeline, content safety, and agent orchestrator all live in one Python process. Inter-component communication is function calls, not network hops. The performance bottleneck in an AI gateway is always the model provider response time (500ms–30s), never the proxy layer. Python's async capabilities with uvicorn handle the concurrency profile comfortably.
+
+**PostgreSQL + pgvector over a separate vector database.** One database to operate, back up, and secure. pgvector handles the embedding search workload at the scale we're targeting (tens of thousands of users, millions of documents). If a deployment scales beyond pgvector's capacity, the vector store interface is abstracted and can be swapped to Milvus or Qdrant without application changes.
+
+**AWS Secrets Manager over HashiCorp Vault.** Vault is powerful but adds operational complexity. For AWS-native deployments, Secrets Manager provides the same agent credential injection capability with zero additional infrastructure. For non-AWS deployments, Vault can be substituted.
+
+**EKS for agent execution.** Kubernetes provides the network policy enforcement, resource limits, and ephemeral container lifecycle management that governed agent execution requires. The team has deep Kubernetes experience from prior DARPA infrastructure work.
 
 ---
 
