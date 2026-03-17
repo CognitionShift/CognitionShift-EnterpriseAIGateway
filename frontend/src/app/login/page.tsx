@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { login, register } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { branding } from "@/lib/branding";
 
 export default function LoginPage() {
   const { refresh } = useAuth();
@@ -39,10 +40,17 @@ export default function LoginPage() {
         className="w-full max-w-md rounded-xl p-8"
         style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
       >
-        {/* Logo */}
+        {/* Logo & Branding */}
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold mb-1">⚡ CognitionShift</h1>
-          <p style={{ color: "var(--text-secondary)" }}>Enterprise AI Gateway</p>
+          {branding.hasOrgLogo && (
+            <img
+              src={branding.orgLogoUrl}
+              alt={branding.orgName}
+              className="h-12 mx-auto mb-3"
+            />
+          )}
+          <h1 className="text-2xl font-bold mb-1">{branding.loginTitle}</h1>
+          <p style={{ color: "var(--text-secondary)" }}>{branding.loginSubtitle}</p>
         </div>
 
         {/* Tabs */}

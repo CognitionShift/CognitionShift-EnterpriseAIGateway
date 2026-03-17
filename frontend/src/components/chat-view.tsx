@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Message } from "@/lib/api";
 import { MessageBubble } from "./message-bubble";
+import { branding } from "@/lib/branding";
 
 interface ChatViewProps {
   messages: Message[];
@@ -53,10 +54,14 @@ export function ChatView({ messages, streaming, streamContent, onSend }: ChatVie
         <div className="max-w-3xl mx-auto space-y-6">
           {messages.length === 0 && !streaming && (
             <div className="text-center py-16">
-              <div className="text-5xl mb-4">⚡</div>
-              <h2 className="text-2xl font-semibold mb-3">CognitionShift</h2>
+              {branding.hasOrgLogo ? (
+                <img src={branding.orgLogoUrl} alt={branding.orgName} className="h-16 mx-auto mb-4" />
+              ) : (
+                <div className="text-5xl mb-4">{branding.platformIcon}</div>
+              )}
+              <h2 className="text-2xl font-semibold mb-3">{branding.welcomeTitle}</h2>
               <p className="text-base mb-8" style={{ color: "var(--text-secondary)" }}>
-                Enterprise AI at your fingertips. Ask anything.
+                {branding.welcomeSubtitle}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
                 {[

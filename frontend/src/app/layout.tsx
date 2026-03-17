@@ -5,7 +5,9 @@ import { ToastProvider } from "@/components/toast";
 import { ErrorBoundary } from "@/components/error-boundary";
 
 export const metadata: Metadata = {
-  title: "CognitionShift AI Gateway",
+  title: process.env.NEXT_PUBLIC_ORG_NAME
+    ? `${process.env.NEXT_PUBLIC_ORG_NAME} — AI Gateway`
+    : "CognitionShift Enterprise AI Gateway",
   description: "Enterprise AI Gateway — Secure, governed access to frontier AI models",
 };
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Conversation } from "@/lib/api";
 import { ConversationListSkeleton } from "@/components/skeleton";
+import { branding } from "@/lib/branding";
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -77,7 +78,11 @@ export function Sidebar({
       >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-        <span className="text-sm font-bold">⚡ CognitionShift</span>
+        {branding.hasOrgLogo ? (
+          <img src={branding.orgLogoUrl} alt={branding.orgName} className="h-6" />
+        ) : (
+          <span className="text-sm font-bold">{branding.displayName}</span>
+        )}
         <button
           onClick={onToggle}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-sm"
@@ -195,6 +200,15 @@ export function Sidebar({
             Logout
           </button>
         </div>
+
+        {/* Platform attribution */}
+        {branding.hasOrgBranding && (
+          <div className="px-4 py-2 text-center" style={{ borderTop: "1px solid var(--border)" }}>
+            <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+              {branding.platformIcon} {branding.poweredBy}
+            </span>
+          </div>
+        )}
       </div>
     </aside>
     </>
