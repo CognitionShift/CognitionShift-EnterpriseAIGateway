@@ -16,8 +16,17 @@ An **AI operations layer** that sits between your organization's users and the f
 
 ## Documentation
 
-- [Architecture & Design](design-docs/architecture.md) — Full system design document
-- [User Documentation](docs/) — Coming soon
+### Design Documents
+- [Architecture & Design](design-docs/architecture.md) — System architecture, components, deployment model
+- [Database Schema](design-docs/database-schema.md) — Multi-tenant data model, all tables, indexes, migration strategy
+- [Streaming Architecture](design-docs/streaming-architecture.md) — SSE streaming pipeline, content safety during streaming
+- [API Contract](design-docs/api-contract.md) — REST API specification, all endpoints, request/response formats
+- [Model Resilience](design-docs/model-resilience.md) — Health checking, fallback chains, circuit breakers, retry logic
+- [Caching Strategy](design-docs/caching-strategy.md) — Exact match, semantic, and embedding caches
+- [Testing Strategy](design-docs/testing-strategy.md) — Unit, integration, e2e, load, accessibility, and security testing
+
+### User Documentation
+- [User Docs](docs/) — Coming soon
 
 ## License
 
