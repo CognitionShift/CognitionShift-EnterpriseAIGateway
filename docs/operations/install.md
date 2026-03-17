@@ -5,7 +5,7 @@ version: "0.1.0"
 phase: install
 estimated_duration: "25m"
 risk_level: low
-rollback_strategy: "cd /opt/csgateway && docker compose -f infra/docker-compose.dev.yml down -v"
+rollback_strategy: "cd /opt/csgateway && docker compose -f infra/docker-compose.prod.yml down -v"
 required_tools:
   - name: docker
     version: ">=24.0"
@@ -18,11 +18,15 @@ required_tools:
   - name: curl
     check: "curl --version"
 required_access:
-  - "Target server with SSH access"
+  - "Server with SSH access and ports 80/443 open"
+  - "A domain name pointed at the server (for TLS)"
   - "Internet access for Docker image builds and model API calls"
   - "At least one model provider API key (OpenAI, Anthropic, or Google)"
 environment:
   required:
+    - name: DOMAIN
+      description: "Domain name for the gateway. Caddy auto-provisions TLS via Let's Encrypt."
+      example: "gateway.cognitionshift.com"
     - name: ANTHROPIC_API_KEY
       description: "Anthropic API key for Claude models (or set OPENAI_API_KEY or GOOGLE_API_KEY instead)"
       example: "sk-ant-..."
@@ -34,12 +38,12 @@ environment:
     - name: SECRET_KEY
       description: "JWT signing key (random 64-char hex). Auto-generated if not set."
       default: "auto-generated"
-    - name: DOMAIN
-      description: "Domain name for the gateway. Used for CORS and TLS."
-      default: "localhost"
-    - name: FRONTEND_URL
-      description: "URL where the frontend is accessible"
-      default: "http://localhost:3000"
+    - name: ADMIN_EMAIL
+      description: "Initial admin account email"
+      default: "admin@localhost"
+    - name: ADMIN_PASSWORD
+      description: "Initial admin account password"
+      default: "changeme"
     - name: INSTALL_DIR
       description: "Installation directory"
       default: "/opt/csgateway"
@@ -48,7 +52,6 @@ target_platforms:
   - "Ubuntu 24.04 LTS (recommended)"
   - "Amazon Linux 2023"
   - "Debian 12+"
-  - "macOS 14+ (development only)"
 minimum_resources:
   cpu: "4 vCPU"
   memory: "8 GB"
@@ -57,11 +60,30 @@ minimum_resources:
     cpu: "8 vCPU"
     memory: "16 GB"
     storage: "100 GB SSD"
+ports:
+  external:
+    - "80 (HTTP → HTTPS redirect)"
+    - "443 (HTTPS — all traffic)"
+  internal_only:
+    - "3000 (frontend)"
+    - "8000 (backend API)"
+    - "5432 (PostgreSQL)"
+    - "6379 (Redis)"
 ---
 
 # Install — CognitionShift Enterprise AI Gateway
 
 > This document follows the [Agent-Executable Operations Specification (AEOS)](https://github.com/CognitionShift/AEOS). Every step includes preconditions, verification, and error recovery — designed for both human operators and AI agents.
+
+**Architecture:** All traffic enters through Caddy on ports 80/443. Caddy handles TLS (auto Let's Encrypt), routes `/api/*` to the backend, and everything else to the frontend. No other ports are exposed.
+
+```
+Internet → :443 (Caddy, auto-TLS)
+           ├── /api/*  → backend:8000  (internal)
+           └── /*      → frontend:3000 (internal)
+           
+           :80 → 301 redirect to :443
+```
 
 ---
 
@@ -91,10 +113,40 @@ echo "Arch:       $(uname -m)"
 
 ### on_failure
 - pattern: "output is >= 4"
-  recovery: "Minimum 4 CPU cores required. Current server does not meet requirements."
+  recovery: "Minimum 4 CPU cores required."
   escalate: true
 - pattern: "output is >= 7"
-  recovery: "Minimum 8 GB RAM required (16 GB recommended). Current server does not meet requirements."
+  recovery: "Minimum 8 GB RAM required (16 GB recommended)."
+  escalate: true
+
+---
+
+## step: Verify Ports Available
+
+### preconditions
+- platform: linux
+
+### action
+
+```bash
+echo "Checking port availability..."
+for port in 80 443; do
+    if ss -tlnp | grep -q ":${port} "; then
+        echo "WARNING: Port ${port} is in use:"
+        ss -tlnp | grep ":${port} "
+    else
+        echo "Port ${port}: available ✓"
+    fi
+done
+```
+
+### verify
+- port: 80 is not in use
+- port: 443 is not in use
+
+### on_failure
+- pattern: "port.*in use"
+  recovery: "Ports 80 and 443 must be free. Stop any existing web server (nginx, apache, caddy) before proceeding."
   escalate: true
 
 ---
@@ -122,7 +174,6 @@ newgrp docker || true
 ### verify
 - run: `docker --version` exits 0
 - run: `docker compose version` exits 0
-- run: `docker info --format '{{.ServerVersion}}'` output is not empty
 
 ### on_failure
 - pattern: "permission denied"
@@ -155,12 +206,12 @@ newgrp docker || true
 INSTALL_DIR="${INSTALL_DIR:-/opt/csgateway}"
 
 if [ -d "$INSTALL_DIR/.git" ]; then
-    echo "Repository already exists at $INSTALL_DIR, pulling latest..."
+    echo "Repository exists at $INSTALL_DIR, pulling latest..."
     cd "$INSTALL_DIR"
     git pull origin main
 else
-    sudo mkdir -p "$(dirname $INSTALL_DIR)"
-    sudo chown $USER:$USER "$(dirname $INSTALL_DIR)"
+    sudo mkdir -p "$(dirname $INSTALL_DIR)" 2>/dev/null || true
+    sudo chown $USER:$USER "$(dirname $INSTALL_DIR)" 2>/dev/null || true
     git clone https://github.com/CognitionShift/CognitionShift-EnterpriseAIGateway.git "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 fi
@@ -170,9 +221,10 @@ echo "Commit: $(git log --oneline -1)"
 ```
 
 ### verify
-- file: ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.dev.yml exists
-- file: ${INSTALL_DIR:-/opt/csgateway}/backend/app/main.py exists
+- file: ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.prod.yml exists
+- file: ${INSTALL_DIR:-/opt/csgateway}/infra/Caddyfile exists
 - file: ${INSTALL_DIR:-/opt/csgateway}/backend/Dockerfile exists
+- file: ${INSTALL_DIR:-/opt/csgateway}/frontend/Dockerfile.prod exists
 
 ### on_failure
 - pattern: "Permission denied"
@@ -182,61 +234,56 @@ echo "Commit: $(git log --oneline -1)"
     ```
   then: retry
 - pattern: "Repository not found"
-  recovery: "Verify the repository URL and your access permissions."
+  recovery: "Verify the repository URL and access permissions."
   escalate: true
 
 ---
 
-## step: Generate Environment Configuration
+## step: Configure Environment
 
 ### preconditions
-- file: ${INSTALL_DIR:-/opt/csgateway}/backend/app/config.py exists
+- file: ${INSTALL_DIR:-/opt/csgateway}/infra/.env.example exists
+- env: DOMAIN is set
 
 ### action
 
 ```bash
 cd "${INSTALL_DIR:-/opt/csgateway}"
 
-SECRET_KEY="${SECRET_KEY:-$(openssl rand -hex 32)}"
-DOMAIN="${DOMAIN:-localhost}"
-FRONTEND_URL="${FRONTEND_URL:-http://${DOMAIN}:3000}"
+# Copy example if no .env exists
+if [ ! -f infra/.env ]; then
+    cp infra/.env.example infra/.env
+fi
 
-cat > backend/.env << EOF
-# CognitionShift Enterprise AI Gateway
-# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Set values from environment
+sed -i "s|^DOMAIN=.*|DOMAIN=${DOMAIN}|" infra/.env
+sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}|" infra/.env
+sed -i "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=${OPENAI_API_KEY:-}|" infra/.env
+sed -i "s|^GOOGLE_API_KEY=.*|GOOGLE_API_KEY=${GOOGLE_API_KEY:-}|" infra/.env
 
-# Environment
-DEBUG=false
-ENVIRONMENT=production
+if [ -n "${SECRET_KEY:-}" ]; then
+    sed -i "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" infra/.env
+fi
+if [ -n "${ADMIN_EMAIL:-}" ]; then
+    sed -i "s|^ADMIN_EMAIL=.*|ADMIN_EMAIL=${ADMIN_EMAIL}|" infra/.env
+fi
+if [ -n "${ADMIN_PASSWORD:-}" ]; then
+    sed -i "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=${ADMIN_PASSWORD}|" infra/.env
+fi
 
-# Security
-SECRET_KEY=${SECRET_KEY}
+# Generate backend/.env from infra/.env
+bash infra/generate-env.sh
 
-# Database (internal Docker network)
-DATABASE_URL=postgresql+asyncpg://csgateway:csgateway@postgres:5432/csgateway
-
-# Redis (internal Docker network)
-REDIS_URL=redis://redis:6379/0
-
-# CORS
-CORS_ORIGINS=["${FRONTEND_URL}"]
-
-# Model Providers — at least one required
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-OPENAI_API_KEY=${OPENAI_API_KEY:-}
-GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-EOF
-
-chmod 600 backend/.env
-echo "Environment file written to backend/.env"
+chmod 600 infra/.env
+echo "Environment configured for: ${DOMAIN}"
 ```
 
 ### verify
+- file: ${INSTALL_DIR:-/opt/csgateway}/infra/.env exists
 - file: ${INSTALL_DIR:-/opt/csgateway}/backend/.env exists
-- run: `grep -c SECRET_KEY ${INSTALL_DIR:-/opt/csgateway}/backend/.env` output is "1"
-- run: `grep -c DATABASE_URL ${INSTALL_DIR:-/opt/csgateway}/backend/.env` output is "1"
-- run: `stat -c %a ${INSTALL_DIR:-/opt/csgateway}/backend/.env` output is "600"
-- run: `grep -E '^(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY)=.+' ${INSTALL_DIR:-/opt/csgateway}/backend/.env | wc -l` output is >= 1
+- run: `grep -c "DOMAIN=" ${INSTALL_DIR:-/opt/csgateway}/infra/.env` output is "1"
+- run: `grep -E '^(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY)=.+' ${INSTALL_DIR:-/opt/csgateway}/infra/.env | wc -l` output is >= 1
+- run: `stat -c %a ${INSTALL_DIR:-/opt/csgateway}/infra/.env` output is "600"
 
 ### on_failure
 - pattern: "output is >= 1"
@@ -245,46 +292,12 @@ echo "Environment file written to backend/.env"
 
 ---
 
-## step: Build Docker Images
+## step: Build and Start Services
 
 ### preconditions
 - run: `docker compose version` exits 0
-- file: ${INSTALL_DIR:-/opt/csgateway}/backend/Dockerfile exists
-- file: ${INSTALL_DIR:-/opt/csgateway}/frontend/Dockerfile exists
-
-### action
-
-```bash
-cd "${INSTALL_DIR:-/opt/csgateway}"
-docker compose -f infra/docker-compose.dev.yml build --parallel
-```
-
-### verify
-- run: `docker images | grep -c csgateway` output is >= 2
-
-### on_failure
-- pattern: "network.*timeout\|Could not resolve"
-  recovery: "Network error during build. Check internet connectivity."
-  then: retry
-  max_retries: 2
-- pattern: "no space left on device"
-  recovery: |
-    ```bash
-    docker system prune -f
-    ```
-  then: retry
-- pattern: ".*"
-  recovery: "Docker build failed. Check build output above for errors."
-  escalate: true
-
----
-
-## step: Start Infrastructure Services
-
-Start PostgreSQL (with pgvector) and Redis before the application.
-
-### preconditions
-- run: `docker compose version` exits 0
+- file: ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.prod.yml exists
+- file: ${INSTALL_DIR:-/opt/csgateway}/infra/.env exists
 - file: ${INSTALL_DIR:-/opt/csgateway}/backend/.env exists
 
 ### action
@@ -292,167 +305,104 @@ Start PostgreSQL (with pgvector) and Redis before the application.
 ```bash
 cd "${INSTALL_DIR:-/opt/csgateway}"
 
-# Start database and cache
-docker compose -f infra/docker-compose.dev.yml up -d postgres redis
+# Load infra env for docker compose
+set -a
+source infra/.env
+set +a
 
-# Wait for PostgreSQL
-echo "Waiting for PostgreSQL..."
-for i in $(seq 1 30); do
-    if docker exec csgateway-postgres pg_isready -U csgateway 2>/dev/null; then
-        echo "PostgreSQL is ready."
-        break
-    fi
-    if [ "$i" -eq 30 ]; then echo "PostgreSQL timeout."; exit 1; fi
-    sleep 1
-done
+# Build and start everything
+docker compose -f infra/docker-compose.prod.yml build --parallel
+docker compose -f infra/docker-compose.prod.yml up -d
 
-# Wait for Redis
-echo "Waiting for Redis..."
-for i in $(seq 1 15); do
-    if docker exec csgateway-redis redis-cli ping 2>/dev/null | grep -q PONG; then
-        echo "Redis is ready."
-        break
-    fi
-    if [ "$i" -eq 15 ]; then echo "Redis timeout."; exit 1; fi
-    sleep 1
-done
+echo "Waiting for services to start..."
+sleep 30
+
+echo ""
+echo "=== Service Status ==="
+docker compose -f infra/docker-compose.prod.yml ps
 ```
 
 ### verify
-- run: `docker exec csgateway-postgres pg_isready -U csgateway` exits 0
-- run: `docker exec csgateway-redis redis-cli ping` output contains "PONG"
+- run: `docker ps --filter name=csgateway-caddy --filter status=running -q | wc -l` output is "1"
+- run: `docker ps --filter name=csgateway-backend --filter status=running -q | wc -l` output is "1"
+- run: `docker ps --filter name=csgateway-frontend --filter status=running -q | wc -l` output is "1"
 - run: `docker ps --filter name=csgateway-postgres --filter status=running -q | wc -l` output is "1"
 - run: `docker ps --filter name=csgateway-redis --filter status=running -q | wc -l` output is "1"
 
 ### on_failure
-- pattern: "pg_isready.*timeout\|PostgreSQL timeout"
+- pattern: "no space left"
   recovery: |
     ```bash
-    docker compose -f infra/docker-compose.dev.yml logs postgres --tail=20
-    docker compose -f infra/docker-compose.dev.yml restart postgres
-    sleep 15
+    docker system prune -f
     ```
   then: retry
-  max_retries: 2
-- pattern: "Redis timeout\|PONG.*not found"
-  recovery: |
-    ```bash
-    docker compose -f infra/docker-compose.dev.yml restart redis
-    sleep 5
-    ```
-  then: retry
-- pattern: "port.*already.*use\|address already in use"
-  recovery: "Port 5432 or 6379 is already in use. Stop the conflicting service or change ports in docker-compose.dev.yml."
+- pattern: "port.*already in use"
+  recovery: "Port 80 or 443 is in use. Stop the conflicting service."
   escalate: true
 - pattern: ".*"
-  recovery: "Check logs: `docker compose -f infra/docker-compose.dev.yml logs --tail=30`"
+  recovery: |
+    Check logs:
+    ```bash
+    docker compose -f infra/docker-compose.prod.yml logs --tail=30
+    ```
   escalate: true
 
 ---
 
-## step: Run Database Migrations
+## step: Verify Health
 
 ### preconditions
-- run: `docker exec csgateway-postgres pg_isready -U csgateway` exits 0
-- step: "Start Infrastructure Services" completed
+- step: "Build and Start Services" completed
 
 ### action
 
 ```bash
 cd "${INSTALL_DIR:-/opt/csgateway}"
-docker compose -f infra/docker-compose.dev.yml run --rm backend bash -c "cd /app && alembic upgrade head"
-```
+source infra/.env
 
-### verify
-- run: `docker exec csgateway-postgres psql -U csgateway -d csgateway -tAc "SELECT count(*) FROM alembic_version"` output is "1"
-- run: `docker exec csgateway-postgres psql -U csgateway -d csgateway -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public'" | tr -d ' '` output is >= 10
-
-### on_failure
-- pattern: "already at head\|No upgrade needed"
-  action: continue
-- pattern: "database.*does not exist"
-  recovery: |
-    ```bash
-    docker exec csgateway-postgres createdb -U csgateway csgateway
-    ```
-  then: retry
-- pattern: "Can't locate revision"
-  recovery: |
-    ```bash
-    docker compose -f infra/docker-compose.dev.yml run --rm backend bash -c "cd /app && alembic stamp head"
-    ```
-  then: retry
-  max_retries: 1
-- pattern: ".*"
-  recovery: "Migration failed. Check output above and: `docker compose -f infra/docker-compose.dev.yml run --rm backend bash -c 'alembic history'`"
-  escalate: true
-
----
-
-## step: Start All Services
-
-### preconditions
-- step: "Run Database Migrations" completed
-- run: `docker exec csgateway-postgres pg_isready -U csgateway` exits 0
-- run: `docker exec csgateway-redis redis-cli ping` output contains "PONG"
-
-### action
-
-```bash
-cd "${INSTALL_DIR:-/opt/csgateway}"
-docker compose -f infra/docker-compose.dev.yml up -d
-
-echo "Waiting for all services..."
-sleep 20
+# Test via Caddy (the only external path)
+echo "=== Testing via HTTPS ==="
+curl -sf --max-time 15 "https://${DOMAIN}/api/v1/health" | python3 -m json.tool
 
 echo ""
-echo "=== Service Status ==="
-docker compose -f infra/docker-compose.dev.yml ps
+echo "=== Detailed Health ==="
+curl -sf --max-time 15 "https://${DOMAIN}/api/v1/health/detailed" | python3 -m json.tool
 ```
 
 ### verify
-- run: `docker ps --filter name=csgateway-backend --filter status=running -q | wc -l` output is "1"
-- run: `docker ps --filter name=csgateway-frontend --filter status=running -q | wc -l` output is "1"
-- run: `curl -sf --max-time 15 http://localhost:8000/api/v1/health` exits 0
-- run: `curl -s --max-time 15 http://localhost:8000/api/v1/health | grep -o '"status":"healthy"'` output contains "healthy"
+- run: `source ${INSTALL_DIR:-/opt/csgateway}/infra/.env && curl -sf "https://${DOMAIN}/api/v1/health" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])"` output is "healthy"
 
 ### on_failure
-- pattern: "Connection refused.*8000"
-  recovery: |
-    ```bash
-    docker compose -f infra/docker-compose.dev.yml logs backend --tail=30
-    docker compose -f infra/docker-compose.dev.yml restart backend
-    sleep 15
-    ```
-  then: retry
-  max_retries: 2
-- pattern: "port.*already in use"
-  recovery: "Port 8000, 3000, or 80 is in use. Stop the conflicting service or adjust ports in docker-compose.dev.yml."
+- pattern: "Connection refused"
+  recovery: "Caddy is not serving. Check: `docker logs csgateway-caddy --tail=20`"
   escalate: true
-- pattern: ".*"
-  recovery: |
-    Check all service logs:
-    ```bash
-    docker compose -f infra/docker-compose.dev.yml logs --tail=30
-    ```
+- pattern: "SSL.*certificate"
+  recovery: "TLS certificate not yet provisioned. Verify the domain's DNS A record points to this server's IP, then wait 1-2 minutes for Let's Encrypt."
+  then: retry
+  max_retries: 3
+- pattern: "502"
+  recovery: "Caddy is up but backend is not responding. Check: `docker logs csgateway-backend --tail=20`"
   escalate: true
 
 ---
 
-## step: Create Initial Admin Account
+## step: Create Admin Account
 
 ### preconditions
-- run: `curl -sf http://localhost:8000/api/v1/health` exits 0
+- step: "Verify Health" completed
 
 ### action
 
 ```bash
+cd "${INSTALL_DIR:-/opt/csgateway}"
+source infra/.env
+
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-changeme}"
 
 echo "Creating admin account: ${ADMIN_EMAIL}"
 
-curl -sf -X POST http://localhost:8000/api/v1/auth/register \
+curl -sf -X POST "https://${DOMAIN}/api/v1/auth/register" \
   -H "Content-Type: application/json" \
   -d "{
     \"email\": \"${ADMIN_EMAIL}\",
@@ -462,52 +412,13 @@ curl -sf -X POST http://localhost:8000/api/v1/auth/register \
 ```
 
 ### verify
-- run: `curl -sf -X POST http://localhost:8000/api/v1/auth/login -H "Content-Type: application/json" -d "{\"email\":\"${ADMIN_EMAIL:-admin@localhost}\",\"password\":\"${ADMIN_PASSWORD:-changeme}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'][:20])"` output is not empty
+- run: `source ${INSTALL_DIR:-/opt/csgateway}/infra/.env && curl -sf -X POST "https://${DOMAIN}/api/v1/auth/login" -H "Content-Type: application/json" -d "{\"email\":\"${ADMIN_EMAIL:-admin@localhost}\",\"password\":\"${ADMIN_PASSWORD:-changeme}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'][:20])"` output is not empty
 
 ### on_failure
 - pattern: "already exists\|duplicate"
   action: continue
 - pattern: "Connection refused"
-  recovery: "Backend is not responding. Check: `docker compose -f infra/docker-compose.dev.yml logs backend --tail=20`"
-  escalate: true
-
----
-
-## step: Verify Model Provider Connectivity
-
-### preconditions
-- run: `curl -sf http://localhost:8000/api/v1/health` exits 0
-
-### action
-
-```bash
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-changeme}"
-
-TOKEN=$(curl -sf -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
-
-echo "=== Available Models ==="
-curl -sf http://localhost:8000/api/v1/models \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-
-echo ""
-echo "=== Provider Health ==="
-curl -sf http://localhost:8000/api/v1/health/detailed \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-```
-
-### verify
-- run: `curl -sf http://localhost:8000/api/v1/health/detailed | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data']['status'])"` output is "healthy"
-
-### on_failure
-- pattern: "No models\|models.*empty\|\\[\\]"
-  recovery: "No models available. Verify API keys in backend/.env and restart: `docker compose -f infra/docker-compose.dev.yml restart backend`"
-  escalate: true
-- pattern: "invalid.*key\|authentication.*failed"
-  recovery: "API key is invalid. Check the key in backend/.env, correct it, and restart the backend."
+  recovery: "Backend is not responding. Check: `docker logs csgateway-backend --tail=20`"
   escalate: true
 
 ---
@@ -515,14 +426,13 @@ curl -sf http://localhost:8000/api/v1/health/detailed \
 ## step: Final Verification
 
 ### preconditions
-- step: "Start All Services" completed
-- step: "Create Initial Admin Account" completed
+- step: "Create Admin Account" completed
 
 ### action
 
 ```bash
-DOMAIN="${DOMAIN:-localhost}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
+cd "${INSTALL_DIR:-/opt/csgateway}"
+source infra/.env
 
 echo "============================================"
 echo "  CognitionShift Enterprise AI Gateway"
@@ -530,45 +440,41 @@ echo "  Installation Complete"
 echo "============================================"
 echo ""
 
-echo "Service Health:"
-curl -s http://localhost:8000/api/v1/health/detailed | python3 -m json.tool 2>/dev/null
+echo "Health:"
+curl -s "https://${DOMAIN}/api/v1/health/detailed" | python3 -m json.tool 2>/dev/null
 
 echo ""
 echo "Version:"
-curl -s http://localhost:8000/api/v1/system/version | python3 -m json.tool 2>/dev/null
+curl -s "https://${DOMAIN}/api/v1/system/version" | python3 -m json.tool 2>/dev/null
 
 echo ""
-echo "Access Points:"
-echo "  Frontend:  http://${DOMAIN}:3000"
-echo "  API:       http://${DOMAIN}:8000/api/v1/"
-echo "  Health:    http://${DOMAIN}:8000/api/v1/health"
-echo "  Nginx:     http://${DOMAIN}:80"
+echo "Access:"
+echo "  URL:      https://${DOMAIN}"
+echo "  API:      https://${DOMAIN}/api/v1/"
+echo "  Health:   https://${DOMAIN}/api/v1/health"
 echo ""
-echo "Admin Login:"
-echo "  Email:     ${ADMIN_EMAIL}"
-echo "  Password:  (as configured)"
+echo "Admin:"
+echo "  Email:    ${ADMIN_EMAIL:-admin@localhost}"
+echo "  Password: (as configured)"
+echo ""
+echo "Exposed Ports:"
+echo "  443/tcp — HTTPS (all traffic)"
+echo "  80/tcp  — HTTP redirect to HTTPS"
+echo "  All other ports are internal only."
 echo ""
 echo "Next Steps:"
-echo "  1. Open http://${DOMAIN}:3000 and log in"
-echo "  2. Follow configure.md for model setup, policies, and users"
-echo "  3. Follow operate.md for monitoring and maintenance"
+echo "  1. Open https://${DOMAIN} and log in"
+echo "  2. Follow configure.md for models, policies, users"
+echo "  3. Follow operate.md for monitoring"
 echo "============================================"
 ```
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/health` exits 0
-- run: `curl -sf http://localhost:8000/api/v1/health/detailed | python3 -c "import sys,json; d=json.load(sys.stdin)['data']['checks']; print(d['database'])"` output is "True"
-- run: `curl -sf http://localhost:8000/api/v1/health/detailed | python3 -c "import sys,json; d=json.load(sys.stdin)['data']['checks']; print(d['redis'])"` output is "True"
-- run: `curl -sf http://localhost:3000 --max-time 10` exits 0
-- run: `docker compose -f ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.dev.yml ps --format '{{.State}}' | grep -v running | wc -l` output is "0"
+- run: `source ${INSTALL_DIR:-/opt/csgateway}/infra/.env && curl -sf "https://${DOMAIN}/api/v1/health"` exits 0
+- run: `source ${INSTALL_DIR:-/opt/csgateway}/infra/.env && curl -sf "https://${DOMAIN}"` exits 0
+- run: `docker compose -f ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.prod.yml ps --format '{{.State}}' | grep -v running | wc -l` output is "0"
 
 ### on_failure
-- pattern: "database.*False"
-  recovery: "Database health check failing. Run: `docker compose -f infra/docker-compose.dev.yml logs postgres --tail=20`"
-  escalate: true
-- pattern: "redis.*False"
-  recovery: "Redis health check failing. Run: `docker compose -f infra/docker-compose.dev.yml logs redis --tail=20`"
-  escalate: true
 - pattern: ".*"
-  recovery: "Verification failed. Run: `docker compose -f infra/docker-compose.dev.yml logs --tail=50`"
+  recovery: "Verification failed. Run: `docker compose -f infra/docker-compose.prod.yml logs --tail=50`"
   escalate: true

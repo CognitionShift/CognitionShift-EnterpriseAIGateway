@@ -229,7 +229,7 @@ fi
 echo ""
 echo "Restarting backend to pick up restored data..."
 cd "$INSTALL_DIR"
-docker compose -f infra/docker-compose.dev.yml restart backend
+docker compose -f infra/docker-compose.prod.yml restart backend
 sleep 15
 ```
 

@@ -40,14 +40,14 @@ Post-installation configuration. Run this after a successful install to set up m
 All configuration steps require an admin JWT token. This step obtains one and exports it for subsequent steps.
 
 ### preconditions
-- run: `curl -sf http://localhost:8000/api/v1/health` exits 0
+- run: `curl -sf https://${DOMAIN}/api/v1/health` exits 0
 - env: ADMIN_EMAIL is set
 - env: ADMIN_PASSWORD is set
 
 ### action
 
 ```bash
-export CSG_TOKEN=$(curl -sf -X POST http://localhost:8000/api/v1/auth/login \
+export CSG_TOKEN=$(curl -sf -X POST https://${DOMAIN}/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"${ADMIN_EMAIL:-admin@localhost}\",\"password\":\"${ADMIN_PASSWORD:-changeme}\"}" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
@@ -57,14 +57,14 @@ echo "Authenticated. Token: ${CSG_TOKEN:0:20}..."
 
 ### verify
 - env: CSG_TOKEN is set
-- run: `curl -sf http://localhost:8000/api/v1/auth/me -H "Authorization: Bearer $CSG_TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['email'])"` output contains "@"
+- run: `curl -sf https://${DOMAIN}/api/v1/auth/me -H "Authorization: Bearer $CSG_TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['email'])"` output contains "@"
 
 ### on_failure
 - pattern: "invalid credentials\|401"
   recovery: "Admin credentials are incorrect. Verify ADMIN_EMAIL and ADMIN_PASSWORD match what was set during install."
   escalate: true
 - pattern: "Connection refused"
-  recovery: "Backend is not running. Start it: `docker compose -f ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.dev.yml up -d backend`"
+  recovery: "Backend is not running. Start it: `docker compose -f ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.prod.yml up -d backend`"
   escalate: true
 
 ---
@@ -80,7 +80,7 @@ Check which model providers are available and responding.
 
 ```bash
 echo "=== Configured Models ==="
-curl -sf http://localhost:8000/api/v1/models \
+curl -sf https://${DOMAIN}/api/v1/models \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -c "
 import sys, json
@@ -97,7 +97,7 @@ else:
 
 echo ""
 echo "=== Provider Health ==="
-curl -sf http://localhost:8000/api/v1/health/detailed \
+curl -sf https://${DOMAIN}/api/v1/health/detailed \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -c "
 import sys, json
@@ -113,7 +113,7 @@ else:
 ```
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/models -H "Authorization: Bearer $CSG_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('data',d)))"` output is >= 1
+- run: `curl -sf https://${DOMAIN}/api/v1/models -H "Authorization: Bearer $CSG_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('data',d)))"` output is >= 1
 
 ### on_failure
 - pattern: "0\|No models"
@@ -124,7 +124,7 @@ else:
     # Add your key(s) to backend/.env:
     echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" >> backend/.env
     # Restart backend to pick up new keys:
-    docker compose -f infra/docker-compose.dev.yml restart backend
+    docker compose -f infra/docker-compose.prod.yml restart backend
     sleep 10
     ```
   then: retry
@@ -137,20 +137,20 @@ Set the organization-level content safety rules.
 
 ### preconditions
 - env: CSG_TOKEN is set
-- run: `curl -sf http://localhost:8000/api/v1/health` exits 0
+- run: `curl -sf https://${DOMAIN}/api/v1/health` exits 0
 
 ### action
 
 ```bash
 echo "=== Current Content Policy ==="
-curl -sf http://localhost:8000/api/v1/admin/content-policy \
+curl -sf https://${DOMAIN}/api/v1/admin/content-policy \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -m json.tool
 
 echo ""
 echo "Setting recommended production content policy..."
 
-curl -sf -X PUT http://localhost:8000/api/v1/admin/content-policy \
+curl -sf -X PUT https://${DOMAIN}/api/v1/admin/content-policy \
   -H "Authorization: Bearer $CSG_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -162,7 +162,7 @@ curl -sf -X PUT http://localhost:8000/api/v1/admin/content-policy \
 ```
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/admin/content-policy -H "Authorization: Bearer $CSG_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',d).get('injection_action','missing'))"` output is "block"
+- run: `curl -sf https://${DOMAIN}/api/v1/admin/content-policy -H "Authorization: Bearer $CSG_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',d).get('injection_action','missing'))"` output is "block"
 
 ### on_failure
 - pattern: "403\|forbidden"
@@ -185,7 +185,7 @@ Set default usage quotas for the organization. These can be overridden per-user 
 
 ```bash
 echo "=== Current Quotas ==="
-curl -sf http://localhost:8000/api/v1/admin/quotas \
+curl -sf https://${DOMAIN}/api/v1/admin/quotas \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -m json.tool
 
@@ -198,7 +198,7 @@ echo "Enforcement modes: hard (block), soft (warn), throttle (slow down)"
 ```
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/admin/quotas -H "Authorization: Bearer $CSG_TOKEN"` exits 0
+- run: `curl -sf https://${DOMAIN}/api/v1/admin/quotas -H "Authorization: Bearer $CSG_TOKEN"` exits 0
 
 ### on_failure
 - pattern: ".*"
@@ -218,7 +218,7 @@ Create user accounts for your team. In production, this would be handled via SSO
 
 ```bash
 echo "=== Current Users ==="
-curl -sf http://localhost:8000/api/v1/admin/users \
+curl -sf https://${DOMAIN}/api/v1/admin/users \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -c "
 import sys, json
@@ -230,7 +230,7 @@ for u in (users if isinstance(users, list) else []):
 
 echo ""
 echo "To create a user:"
-echo '  curl -X POST http://localhost:8000/api/v1/auth/register \'
+echo '  curl -X POST https://${DOMAIN}/api/v1/auth/register \'
 echo '    -H "Content-Type: application/json" \'
 echo '    -d '"'"'{"email":"user@example.com","password":"secure-password","name":"Jane Doe"}'"'"''
 echo ""
@@ -240,7 +240,7 @@ echo "    -c \"UPDATE users SET role='admin' WHERE email='user@example.com'\""
 ```
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/admin/users -H "Authorization: Bearer $CSG_TOKEN"` exits 0
+- run: `curl -sf https://${DOMAIN}/api/v1/admin/users -H "Authorization: Bearer $CSG_TOKEN"` exits 0
 
 ---
 
@@ -267,13 +267,13 @@ sed -i "s|CORS_ORIGINS=.*|CORS_ORIGINS=[\"https://${DOMAIN}\",\"http://${DOMAIN}
 
 echo "Updated CORS for domain: ${DOMAIN}"
 echo "Restarting backend..."
-docker compose -f infra/docker-compose.dev.yml restart backend
+docker compose -f infra/docker-compose.prod.yml restart backend
 sleep 10
 ```
 <!-- endif -->
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/health` exits 0
+- run: `curl -sf https://${DOMAIN}/api/v1/health` exits 0
 
 ### on_failure
 - pattern: "Connection refused"
@@ -282,7 +282,7 @@ sleep 10
     ```bash
     cd ${INSTALL_DIR:-/opt/csgateway}
     cp backend/.env.bak.* backend/.env 2>/dev/null
-    docker compose -f infra/docker-compose.dev.yml restart backend
+    docker compose -f infra/docker-compose.prod.yml restart backend
     sleep 10
     ```
   then: retry
@@ -306,7 +306,7 @@ echo ""
 
 # Models
 echo "Models:"
-curl -sf http://localhost:8000/api/v1/models \
+curl -sf https://${DOMAIN}/api/v1/models \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -c "
 import sys, json
@@ -320,7 +320,7 @@ echo ""
 
 # Safety
 echo "Content Safety:"
-curl -sf http://localhost:8000/api/v1/admin/content-policy \
+curl -sf https://${DOMAIN}/api/v1/admin/content-policy \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -c "
 import sys, json
@@ -335,7 +335,7 @@ echo ""
 
 # Users
 echo "Users:"
-curl -sf http://localhost:8000/api/v1/admin/users \
+curl -sf https://${DOMAIN}/api/v1/admin/users \
   -H "Authorization: Bearer $CSG_TOKEN" \
   | python3 -c "
 import sys, json
@@ -351,4 +351,4 @@ echo "============================================"
 ```
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/health/detailed | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['status'])"` output is "healthy"
+- run: `curl -sf https://${DOMAIN}/api/v1/health/detailed | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['status'])"` output is "healthy"

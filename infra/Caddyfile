@@ -1,0 +1,20 @@
+{$DOMAIN:localhost} {
+	# API — proxy to backend
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Frontend — proxy to Next.js
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	# Logging
+	log {
+		output stdout
+		format console
+	}
+}
+
+# HTTP → HTTPS redirect is automatic with Caddy
+# when a real domain is configured

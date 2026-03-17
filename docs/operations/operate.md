@@ -25,6 +25,8 @@ Ongoing monitoring, health checks, log management, and troubleshooting.
 
 > This document follows the [Agent-Executable Operations Specification (AEOS)](https://github.com/CognitionShift/AEOS).
 
+**Note:** All commands assume `$DOMAIN` is set. On the server, run `source /opt/csgateway/infra/.env` first, or set `DOMAIN=your-domain.com`.
+
 ---
 
 ## monitor: Platform Health
@@ -33,8 +35,8 @@ Ongoing monitoring, health checks, log management, and troubleshooting.
 interval: 5m
 
 ### check
-- run: `curl -sf --max-time 10 http://localhost:8000/api/v1/health` exits 0
-- run: `curl -sf --max-time 10 http://localhost:8000/api/v1/health/detailed | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['status'])"` output is "healthy"
+- run: `curl -sf --max-time 10 https://${DOMAIN}/api/v1/health` exits 0
+- run: `curl -sf --max-time 10 https://${DOMAIN}/api/v1/health/detailed | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['status'])"` output is "healthy"
 - run: `docker ps --filter name=csgateway --filter status=running -q | wc -l` output is >= 4
 
 ### on_degraded
@@ -61,7 +63,7 @@ interval: 5m
   recovery: |
     ```bash
     cd ${INSTALL_DIR:-/opt/csgateway}
-    docker compose -f infra/docker-compose.dev.yml up -d
+    docker compose -f infra/docker-compose.prod.yml up -d
     sleep 20
     ```
   then: recheck
@@ -75,7 +77,7 @@ interval: 5m
 interval: 15m
 
 ### check
-- run: `curl -sf --max-time 15 http://localhost:8000/api/v1/health/detailed | python3 -c "import sys,json; p=json.load(sys.stdin)['data']['checks'].get('providers',{}); failed=[k for k,v in p.items() if not v]; print('OK' if not failed else ' '.join(failed))"` output is "OK"
+- run: `curl -sf --max-time 15 https://${DOMAIN}/api/v1/health/detailed | python3 -c "import sys,json; p=json.load(sys.stdin)['data']['checks'].get('providers',{}); failed=[k for k,v in p.items() if not v]; print('OK' if not failed else ' '.join(failed))"` output is "OK"
 
 ### on_degraded
 - pattern: "openai"
@@ -150,11 +152,11 @@ docker stats --no-stream --filter name=csgateway --format 'table {{.Name}}\t{{.C
 
 echo ""
 echo "=== Health ==="
-curl -s http://localhost:8000/api/v1/health/detailed | python3 -m json.tool 2>/dev/null
+curl -s https://${DOMAIN}/api/v1/health/detailed | python3 -m json.tool 2>/dev/null
 
 echo ""
 echo "=== Version ==="
-curl -s http://localhost:8000/api/v1/system/version | python3 -m json.tool 2>/dev/null
+curl -s https://${DOMAIN}/api/v1/system/version | python3 -m json.tool 2>/dev/null
 ```
 
 ### verify
@@ -162,7 +164,7 @@ curl -s http://localhost:8000/api/v1/system/version | python3 -m json.tool 2>/de
 
 ### on_failure
 - pattern: ".*"
-  recovery: "Some services are not running. Check: `docker compose -f ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.dev.yml logs --tail=20`"
+  recovery: "Some services are not running. Check: `docker compose -f ${INSTALL_DIR:-/opt/csgateway}/infra/docker-compose.prod.yml logs --tail=20`"
   escalate: true
 
 ---
@@ -206,7 +208,7 @@ Use when the backend is misbehaving but infrastructure (database, Redis) is heal
 cd "${INSTALL_DIR:-/opt/csgateway}"
 
 echo "Restarting application services..."
-docker compose -f infra/docker-compose.dev.yml restart backend frontend nginx
+docker compose -f infra/docker-compose.prod.yml restart backend frontend nginx
 sleep 15
 
 echo "=== Status After Restart ==="
@@ -214,7 +216,7 @@ docker ps --filter name=csgateway --format 'table {{.Names}}\t{{.Status}}'
 ```
 
 ### verify
-- run: `curl -sf --max-time 15 http://localhost:8000/api/v1/health` exits 0
+- run: `curl -sf --max-time 15 https://${DOMAIN}/api/v1/health` exits 0
 - run: `docker ps --filter name=csgateway --filter status=running -q | wc -l` output is >= 4
 
 ### on_failure
@@ -223,8 +225,8 @@ docker ps --filter name=csgateway --format 'table {{.Names}}\t{{.Status}}'
     Full restart:
     ```bash
     cd ${INSTALL_DIR:-/opt/csgateway}
-    docker compose -f infra/docker-compose.dev.yml down
-    docker compose -f infra/docker-compose.dev.yml up -d
+    docker compose -f infra/docker-compose.prod.yml down
+    docker compose -f infra/docker-compose.prod.yml up -d
     sleep 25
     ```
   then: retry
@@ -235,7 +237,7 @@ docker ps --filter name=csgateway --format 'table {{.Names}}\t{{.Status}}'
 ## step: Check Usage Statistics
 
 ### preconditions
-- run: `curl -sf http://localhost:8000/api/v1/health` exits 0
+- run: `curl -sf https://${DOMAIN}/api/v1/health` exits 0
 
 ### action
 
@@ -243,28 +245,28 @@ docker ps --filter name=csgateway --format 'table {{.Names}}\t{{.Status}}'
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-changeme}"
 
-TOKEN=$(curl -sf -X POST http://localhost:8000/api/v1/auth/login \
+TOKEN=$(curl -sf -X POST https://${DOMAIN}/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
 
 echo "=== Usage Summary (Daily) ==="
-curl -sf "http://localhost:8000/api/v1/usage/summary?period=daily" \
+curl -sf "https://${DOMAIN}/api/v1/usage/summary?period=daily" \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
 echo ""
 echo "=== Usage by Model ==="
-curl -sf "http://localhost:8000/api/v1/usage/breakdown?group_by=model&days=7" \
+curl -sf "https://${DOMAIN}/api/v1/usage/breakdown?group_by=model&days=7" \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
 echo ""
 echo "=== Recent Safety Events ==="
-curl -sf "http://localhost:8000/api/v1/admin/safety-events?days=7&limit=5" \
+curl -sf "https://${DOMAIN}/api/v1/admin/safety-events?days=7&limit=5" \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
 ### verify
-- run: `curl -sf http://localhost:8000/api/v1/usage/summary -H "Authorization: Bearer $TOKEN"` exits 0
+- run: `curl -sf https://${DOMAIN}/api/v1/usage/summary -H "Authorization: Bearer $TOKEN"` exits 0
 
 ---
 
@@ -284,7 +286,7 @@ curl -sf "http://localhost:8000/api/v1/admin/safety-events?days=7&limit=5" \
    - if "Up": continue to step 2
 
 2. **Check if backend is responding**
-   - run: `curl -sf http://localhost:8000/api/v1/health`
+   - run: `curl -sf https://${DOMAIN}/api/v1/health`
    - if exits non-zero: backend is up but not accepting requests — check logs
    - if exits 0: backend is fine, problem is nginx routing — continue to step 3
 
@@ -309,7 +311,7 @@ curl -sf "http://localhost:8000/api/v1/admin/safety-events?days=7&limit=5" \
 ### diagnostic_steps
 
 1. **Check model provider latency**
-   - run: `curl -sf http://localhost:8000/api/v1/health/detailed | python3 -m json.tool`
+   - run: `curl -sf https://${DOMAIN}/api/v1/health/detailed | python3 -m json.tool`
    - if providers show degraded/slow: upstream issue, not the gateway
 
 2. **Check database connections**
@@ -336,11 +338,11 @@ curl -sf "http://localhost:8000/api/v1/admin/safety-events?days=7&limit=5" \
 ### diagnostic_steps
 
 1. **Check backend is running**
-   - run: `curl -sf http://localhost:8000/api/v1/health`
+   - run: `curl -sf https://${DOMAIN}/api/v1/health`
    - if fails: backend is down — see "Application Returns 502" troubleshoot
 
 2. **Test auth endpoint directly**
-   - run: `curl -v -X POST http://localhost:8000/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@localhost","password":"changeme"}'`
+   - run: `curl -v -X POST https://${DOMAIN}/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@localhost","password":"changeme"}'`
    - if 500: check backend logs — database may be unreachable
    - if 401: credentials are wrong — reset password via database
 
