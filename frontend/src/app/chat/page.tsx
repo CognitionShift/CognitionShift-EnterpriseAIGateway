@@ -17,6 +17,8 @@ import { Sidebar } from "@/components/sidebar";
 import { ChatView } from "@/components/chat-view";
 import { ModelSelector } from "@/components/model-selector";
 import { SystemPromptModal } from "@/components/system-prompt-modal";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
 
 export default function ChatPage() {
   const { user, loading, logout } = useAuth();
@@ -95,6 +97,13 @@ export default function ChatPage() {
       console.error("Failed to create conversation:", err);
     }
   };
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onNewChat: handleNewChat,
+    onCloseModal: () => setShowSystemPrompt(false),
+    onToggleSidebar: () => setSidebarOpen((v) => !v),
+  });
 
   const handleDeleteConversation = async (id: string) => {
     try {
@@ -245,6 +254,15 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <a
+              href="/settings"
+              className="px-2 py-1 rounded-lg text-xs transition-colors"
+              style={{ backgroundColor: "var(--bg-tertiary)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+              aria-label="Settings"
+            >
+              ⚙️
+            </a>
             <button
               onClick={() => setShowSystemPrompt(true)}
               className="px-2 py-1 rounded-lg text-xs transition-colors"

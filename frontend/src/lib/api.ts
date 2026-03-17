@@ -48,10 +48,37 @@ export interface ModelInfo {
   id: string;
   display_name: string;
   provider: string;
-  supports_streaming: boolean;
-  max_context_tokens: number | null;
-  input_cost_per_1k: number | null;
-  output_cost_per_1k: number | null;
+  capabilities?: {
+    streaming: boolean;
+    vision: boolean;
+    max_context: number | null;
+  };
+  cost?: {
+    input_per_1k: number | null;
+    output_per_1k: number | null;
+  };
+  is_default?: boolean;
+  // Legacy compat
+  supports_streaming?: boolean;
+  max_context_tokens?: number | null;
+  input_cost_per_1k?: number | null;
+  output_cost_per_1k?: number | null;
+}
+
+/** Unwrap {data: T} envelope, or return raw if no envelope */
+function unwrapData<T>(json: any): T {
+  if (json && typeof json === "object" && "data" in json) {
+    return json.data as T;
+  }
+  return json as T;
+}
+
+/** Unwrap envelope and return {data, meta} */
+function unwrapEnvelope<T>(json: any): { data: T; meta?: any } {
+  if (json && typeof json === "object" && "data" in json) {
+    return { data: json.data as T, meta: json.meta };
+  }
+  return { data: json as T };
 }
 
 function getToken(): string | null {
@@ -114,6 +141,18 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 }
 
 // Auth
+/** Parse error from API response (supports both old and new envelope formats) */
+async function parseApiError(resp: Response, fallback: string): Promise<string> {
+  try {
+    const json = await resp.json();
+    if (json.error?.message) return json.error.message;
+    if (json.detail) return typeof json.detail === "string" ? json.detail : json.detail.message || JSON.stringify(json.detail);
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function register(email: string, password: string, name: string): Promise<TokenResponse> {
   const resp = await fetch(`${API_URL}/api/v1/auth/register`, {
     method: "POST",
@@ -121,8 +160,8 @@ export async function register(email: string, password: string, name: string): P
     body: JSON.stringify({ email, password, name }),
   });
   if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.detail || "Registration failed");
+    const msg = await parseApiError(resp, "Registration failed");
+    throw new Error(msg);
   }
   const tokens = await resp.json();
   saveTokens(tokens);
@@ -136,8 +175,8 @@ export async function login(email: string, password: string): Promise<TokenRespo
     body: JSON.stringify({ email, password }),
   });
   if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.detail || "Login failed");
+    const msg = await parseApiError(resp, "Login failed");
+    throw new Error(msg);
   }
   const tokens = await resp.json();
   saveTokens(tokens);
@@ -154,14 +193,30 @@ export async function getMe(): Promise<UserResponse> {
 export async function listModels(): Promise<ModelInfo[]> {
   const resp = await fetchWithAuth("/api/v1/models");
   if (!resp.ok) throw new Error("Failed to fetch models");
-  return resp.json();
+  const json = await resp.json();
+  return unwrapData<ModelInfo[]>(json);
+}
+
+export async function getModel(modelId: string): Promise<ModelInfo> {
+  const resp = await fetchWithAuth(`/api/v1/models/${modelId}`);
+  if (!resp.ok) throw new Error("Failed to fetch model");
+  const json = await resp.json();
+  return unwrapData<ModelInfo>(json);
 }
 
 // Conversations
 export async function listConversations(): Promise<Conversation[]> {
   const resp = await fetchWithAuth("/api/v1/conversations");
   if (!resp.ok) throw new Error("Failed to fetch conversations");
-  return resp.json();
+  const json = await resp.json();
+  return unwrapData<Conversation[]>(json);
+}
+
+export async function getConversation(id: string): Promise<Conversation> {
+  const resp = await fetchWithAuth(`/api/v1/conversations/${id}`);
+  if (!resp.ok) throw new Error("Failed to fetch conversation");
+  const json = await resp.json();
+  return unwrapData<Conversation>(json);
 }
 
 export async function createConversation(title?: string, modelId?: string, systemPrompt?: string): Promise<Conversation> {
@@ -170,7 +225,18 @@ export async function createConversation(title?: string, modelId?: string, syste
     body: JSON.stringify({ title, model_id: modelId, system_prompt: systemPrompt }),
   });
   if (!resp.ok) throw new Error("Failed to create conversation");
-  return resp.json();
+  const json = await resp.json();
+  return unwrapData<Conversation>(json);
+}
+
+export async function updateConversation(id: string, updates: Partial<{title: string; model_id: string; pinned: boolean; archived: boolean}>): Promise<Conversation> {
+  const resp = await fetchWithAuth(`/api/v1/conversations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error("Failed to update conversation");
+  const json = await resp.json();
+  return unwrapData<Conversation>(json);
 }
 
 export async function deleteConversation(id: string): Promise<void> {
@@ -181,7 +247,54 @@ export async function deleteConversation(id: string): Promise<void> {
 export async function listMessages(conversationId: string): Promise<Message[]> {
   const resp = await fetchWithAuth(`/api/v1/conversations/${conversationId}/messages`);
   if (!resp.ok) throw new Error("Failed to fetch messages");
-  return resp.json();
+  const json = await resp.json();
+  return unwrapData<Message[]>(json);
+}
+
+// Usage
+export async function getMyUsage(period: string = "daily"): Promise<any> {
+  const resp = await fetchWithAuth(`/api/v1/usage/me?period=${period}`);
+  if (!resp.ok) throw new Error("Failed to fetch usage");
+  const json = await resp.json();
+  return unwrapData(json);
+}
+
+// Admin
+export async function listUsers(search?: string): Promise<any> {
+  const url = search ? `/api/v1/admin/users?search=${encodeURIComponent(search)}` : "/api/v1/admin/users";
+  const resp = await fetchWithAuth(url);
+  if (!resp.ok) throw new Error("Failed to fetch users");
+  const json = await resp.json();
+  return unwrapData(json);
+}
+
+export async function getAnalyticsOverview(): Promise<any> {
+  const resp = await fetchWithAuth("/api/v1/admin/analytics/overview");
+  if (!resp.ok) throw new Error("Failed to fetch analytics");
+  const json = await resp.json();
+  return unwrapData(json);
+}
+
+export async function listSafetyEvents(): Promise<any> {
+  const resp = await fetchWithAuth("/api/v1/admin/safety-events");
+  if (!resp.ok) throw new Error("Failed to fetch safety events");
+  const json = await resp.json();
+  return unwrapData(json);
+}
+
+// System
+export async function getSystemVersion(): Promise<any> {
+  const resp = await fetchWithAuth("/api/v1/system/version");
+  const json = await resp.json();
+  return unwrapData(json);
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await fetchWithAuth("/api/v1/auth/logout", { method: "POST" });
+  } finally {
+    clearTokens();
+  }
 }
 
 // Streaming chat

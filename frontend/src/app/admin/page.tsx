@@ -31,6 +31,9 @@ export default function AdminPage() {
   const [models, setModels] = useState<any[]>([]);
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
   const [contentPolicy, setContentPolicy] = useState<any>(null);
+  const [safetyEvents, setSafetyEvents] = useState<any[]>([]);
+  const [costAnalytics, setCostAnalytics] = useState<any>(null);
+  const [adoptionAnalytics, setAdoptionAnalytics] = useState<any>(null);
 
   useEffect(() => {
     if (!loading && !user) window.location.href = "/login";
@@ -47,7 +50,31 @@ export default function AdminPage() {
     fetchModels();
     fetchContentPolicy();
     fetchAudit();
+    fetchSafetyEvents();
+    fetchCostAnalytics();
+    fetchAdoptionAnalytics();
   }, [user]);
+
+  const fetchSafetyEvents = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/v1/admin/safety-events?limit=20`, { headers: headers() });
+      if (r.ok) setSafetyEvents((await r.json()).data);
+    } catch {}
+  };
+
+  const fetchCostAnalytics = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/v1/admin/analytics/costs`, { headers: headers() });
+      if (r.ok) setCostAnalytics((await r.json()).data);
+    } catch {}
+  };
+
+  const fetchAdoptionAnalytics = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/v1/admin/analytics/adoption`, { headers: headers() });
+      if (r.ok) setAdoptionAnalytics((await r.json()).data);
+    } catch {}
+  };
 
   const fetchOverview = async () => {
     try {
@@ -100,6 +127,7 @@ export default function AdminPage() {
     { key: "users", label: "👥 Users" },
     { key: "models", label: "🤖 Models" },
     { key: "safety", label: "🛡️ Safety" },
+    { key: "analytics", label: "📈 Analytics" },
     { key: "audit", label: "📋 Audit" },
   ];
 
@@ -225,18 +253,120 @@ export default function AdminPage() {
           </div>
         )}
 
-        {tab === "safety" && contentPolicy && (
-          <div className="rounded-xl p-6" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-            <h2 className="text-lg font-semibold mb-4">Content Safety Policy</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <PolicyRow label="PII Action" value={contentPolicy.pii_action} />
-              <PolicyRow label="Injection Action" value={contentPolicy.injection_action} />
-              <PolicyRow label="DLP Engine" value={contentPolicy.dlp_enabled ? "Enabled" : "Disabled"} />
-              <PolicyRow label="Outbound Scan" value={contentPolicy.outbound_scan ? "Enabled" : "Disabled"} />
+        {tab === "safety" && (
+          <div className="space-y-6">
+            {/* Content Policy */}
+            {contentPolicy && (
+              <div className="rounded-xl p-6" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                <h2 className="text-lg font-semibold mb-4">Content Safety Policy</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <PolicyRow label="PII Action" value={contentPolicy.pii_action} />
+                  <PolicyRow label="Injection Action" value={contentPolicy.injection_action} />
+                  <PolicyRow label="DLP Engine" value={contentPolicy.dlp_enabled ? "Enabled" : "Disabled"} />
+                  <PolicyRow label="Outbound Scan" value={contentPolicy.outbound_scan ? "Enabled" : "Disabled"} />
+                </div>
+              </div>
+            )}
+
+            {/* Safety Events */}
+            <div>
+              <h2 className="text-lg font-semibold mb-4">Recent Safety Events</h2>
+              {safetyEvents.length === 0 ? (
+                <p style={{ color: "var(--text-secondary)" }}>No safety events recorded</p>
+              ) : (
+                <div className="rounded-xl overflow-hidden" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                        <th className="text-left px-4 py-2">Time</th>
+                        <th className="text-left px-4 py-2">Type</th>
+                        <th className="text-left px-4 py-2">Severity</th>
+                        <th className="text-left px-4 py-2">Action</th>
+                        <th className="text-left px-4 py-2">Direction</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {safetyEvents.map((e: any) => (
+                        <tr key={e.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td className="px-4 py-2 text-xs">{new Date(e.created_at).toLocaleString()}</td>
+                          <td className="px-4 py-2">{e.event_type}</td>
+                          <td className="px-4 py-2">
+                            <span className={`px-2 py-0.5 rounded-full text-xs ${
+                              e.severity === "critical" ? "bg-red-900 text-red-200" :
+                              e.severity === "high" ? "bg-orange-900 text-orange-200" :
+                              e.severity === "medium" ? "bg-yellow-900 text-yellow-200" :
+                              "bg-blue-900 text-blue-200"
+                            }`}>
+                              {e.severity}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2">{e.action_taken}</td>
+                          <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>{e.direction}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-            <p className="text-xs mt-4" style={{ color: "var(--text-secondary)" }}>
-              Edit via API: PUT /api/v1/admin/content-policy
-            </p>
+          </div>
+        )}
+
+        {tab === "analytics" && (
+          <div className="space-y-6">
+            {/* Cost analytics */}
+            {costAnalytics && (
+              <div className="rounded-xl p-6" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                <h2 className="text-lg font-semibold mb-4">Cost Breakdown ({costAnalytics.period_days || 7} days)</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <Card label="Total Cost" value={`$${(costAnalytics.total_cost || 0).toFixed(2)}`} />
+                  <Card label="Total Tokens" value={(costAnalytics.total_tokens || 0).toLocaleString()} />
+                  <Card label="Total Requests" value={String(costAnalytics.total_requests || 0)} />
+                  <Card label="Avg Cost/Req" value={`$${((costAnalytics.total_cost || 0) / Math.max(costAnalytics.total_requests || 1, 1)).toFixed(4)}`} />
+                </div>
+                {costAnalytics.by_model && costAnalytics.by_model.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-secondary)" }}>By Model</h3>
+                    <div className="space-y-1">
+                      {costAnalytics.by_model.map((m: any, i: number) => (
+                        <div key={i} className="flex justify-between text-sm py-1" style={{ borderBottom: "1px solid var(--border)" }}>
+                          <span>{m.model_id}</span>
+                          <span>${(m.cost || 0).toFixed(4)} ({m.requests} req)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Adoption analytics */}
+            {adoptionAnalytics && (
+              <div className="rounded-xl p-6" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                <h2 className="text-lg font-semibold mb-4">User Adoption ({adoptionAnalytics.period_days || 30} days)</h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Card label="Total Users" value={String(adoptionAnalytics.total_users || 0)} />
+                  <Card label="Active Users" value={String(adoptionAnalytics.active_users || 0)} />
+                  <Card label="Adoption Rate" value={`${((adoptionAnalytics.active_users || 0) / Math.max(adoptionAnalytics.total_users || 1, 1) * 100).toFixed(0)}%`} />
+                </div>
+                {adoptionAnalytics.by_day && adoptionAnalytics.by_day.length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-secondary)" }}>Daily Active Users</h3>
+                    <div className="flex items-end gap-1 h-32">
+                      {adoptionAnalytics.by_day.slice(-14).map((d: any, i: number) => {
+                        const max = Math.max(...adoptionAnalytics.by_day.map((x: any) => x.active_users || 0), 1);
+                        const height = ((d.active_users || 0) / max) * 100;
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center justify-end" title={`${d.date}: ${d.active_users} users`}>
+                            <div className="w-full rounded-t" style={{ height: `${Math.max(height, 2)}%`, backgroundColor: "var(--accent)" }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

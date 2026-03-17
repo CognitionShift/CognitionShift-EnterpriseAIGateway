@@ -128,6 +128,13 @@ export function Sidebar({
             ⚙️ Admin Console
           </a>
         )}
+        <a
+          href="/settings"
+          className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          🔧 Settings
+        </a>
 
         {/* User info */}
         <div className="px-4 py-3 flex items-center justify-between">
