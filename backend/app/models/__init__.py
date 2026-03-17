@@ -4,6 +4,7 @@ from app.models.conversation import Conversation, Message
 from app.models.api_key import ApiKey
 from app.models.audit import AuditLog
 from app.models.usage import UsageLog
+from app.models.quota import Quota
 
 __all__ = [
     "Organization", "Division", "Department", "Team",

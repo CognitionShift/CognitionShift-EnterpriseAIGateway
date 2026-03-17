@@ -14,6 +14,7 @@ from app.database import get_db, async_session
 from app.middleware.tenant import get_current_user, TenantContext
 from app.models.conversation import Conversation, Message
 from app.services.content_safety import check_content_safety
+from app.services.quota import check_quota
 from app.models.usage import UsageLog
 from app.schemas.chat import ChatMessageRequest
 from app.services.providers.base import ChatMessage, StreamChunk
@@ -48,6 +49,20 @@ async def send_message(
     conv = result.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Quota check
+    quota_result = await check_quota(db, tenant.org_id, tenant.user_id)
+    if not quota_result.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "quota_exceeded",
+                "message": "Usage quota exceeded",
+                "warnings": quota_result.warnings,
+                "current_usage": quota_result.current_usage,
+                "limits": quota_result.limits,
+            },
+        )
 
     # Content safety check
     safety = check_content_safety(req.content)

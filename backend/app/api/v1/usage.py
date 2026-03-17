@@ -14,7 +14,7 @@ router = APIRouter(prefix="/usage", tags=["usage"])
 
 @router.get("/me")
 async def my_usage(
-    period: str = Query(default="daily", regex="^(daily|weekly|monthly)$"),
+    period: str = Query(default="daily", pattern="^(daily|weekly|monthly)$"),
     tenant: TenantContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -60,7 +60,7 @@ async def my_usage(
 
 @router.get("/summary")
 async def usage_summary(
-    period: str = Query(default="daily", regex="^(daily|weekly|monthly)$"),
+    period: str = Query(default="daily", pattern="^(daily|weekly|monthly)$"),
     tenant: TenantContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -112,7 +112,7 @@ async def usage_summary(
 
 @router.get("/breakdown")
 async def usage_breakdown(
-    group_by: str = Query(default="model", regex="^(model|user|day)$"),
+    group_by: str = Query(default="model", pattern="^(model|user|day)$"),
     days: int = Query(default=7, ge=1, le=90),
     tenant: TenantContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
