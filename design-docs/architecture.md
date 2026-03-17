@@ -472,40 +472,145 @@ Browser → Next.js (SSR shell + React SPA)
 
 ## 5. Deployment Model
 
-### 5.1 Single-Tenant (Dedicated)
+The platform is designed to run anywhere — from a single server for evaluation to a multi-region cloud deployment for production. The deployment unit is a **Helm chart** for Kubernetes environments and a **Docker Compose file** for single-server deployments.
 
-Each institution gets their own isolated infrastructure:
+### 5.1 Deployment Options
+
+#### Option A: AWS Managed (Production Default)
+
+For production deployments operated by CognitionShift as a managed service:
 
 ```
-AWS Account (Institution-specific)
-├── VPC (US region, per data residency requirements)
-│   ├── EKS Cluster (gateway + agents)
-│   ├── RDS PostgreSQL (Multi-AZ)
-│   ├── ElastiCache Redis
-│   ├── S3 (encrypted, versioned)
-│   ├── Keycloak (institution's IdP config)
-│   └── ALB (TLS termination, WAF)
-└── CloudWatch / Grafana (monitoring)
+CloudFront (CDN, edge caching)
+    │
+ALB (TLS termination, WAF)
+    │
+ECS Fargate ──── Next.js (2+ tasks, auto-scale)
+    │
+ECS Fargate ──── FastAPI (2+ tasks, auto-scale)
+    │
+ECS Fargate ──── Keycloak (2 tasks, HA)
+    │
+RDS Aurora Serverless v2 (PostgreSQL + pgvector)
+ElastiCache Serverless (Redis)
+S3 (files, audit logs)
+    │
+EKS Fargate ──── Agent containers (on-demand, ephemeral)
 ```
 
-**Best for:** Large institutions (10K+ users), government, high-security environments.
+**Best for:** Production deployments, managed service offerings, 1,000+ users.
 
-### 5.2 Multi-Tenant (Shared Infrastructure)
+#### Option B: Kubernetes-Native (Portable)
 
-Multiple smaller institutions share infrastructure with logical isolation:
+For organizations that operate their own Kubernetes clusters or require specific cloud/on-prem environments:
 
-- Shared EKS cluster with namespace-per-tenant
-- Shared RDS with row-level security
-- Separate S3 buckets per tenant
-- Shared Keycloak with realm-per-tenant
+```
+Kubernetes (EKS / AKS / GKE / OpenShift / k3s / Rancher)
+    │
+Ingress Controller (nginx/traefik, TLS)
+├── Next.js (Deployment + HPA)
+├── FastAPI (Deployment + HPA)
+├── Keycloak (StatefulSet)
+├── PostgreSQL (StatefulSet or operator, e.g., CloudNativePG)
+├── Redis (StatefulSet or operator)
+└── Agent namespace (dynamic pods, network-isolated)
+```
 
-**Best for:** Smaller institutions, consortiums, cost-sensitive deployments.
+Deployment via Helm chart:
 
-### 5.3 Hybrid
+```bash
+# Cloud deployment
+helm install cognitionshift ./chart \
+  --set global.environment=aws \
+  --set database.type=rds \
+  --set storage.type=s3 \
+  --set models.providers={openai,anthropic}
 
-Large divisions get dedicated, smaller units share.
+# On-prem deployment
+helm install cognitionshift ./chart \
+  --set global.environment=onprem \
+  --set database.type=internal \
+  --set storage.type=minio \
+  --set models.providers={ollama} \
+  --set models.ollama.url=http://gpu-server:11434
+```
 
----
+**Best for:** Organizations with existing Kubernetes infrastructure, multi-cloud requirements, or on-premises mandates.
+
+| Environment | Kubernetes Distribution | Storage Backend |
+|---|---|---|
+| AWS | EKS | RDS, S3, ElastiCache |
+| Azure | AKS | Azure Database for PostgreSQL, Blob Storage |
+| GCP | GKE | Cloud SQL, Cloud Storage |
+| On-Prem (VMware) | Rancher / OpenShift / k3s | Local PostgreSQL, MinIO, local Redis |
+| On-Prem (bare metal) | k3s / kubeadm | Local PostgreSQL, MinIO, local Redis |
+| Air-gapped | k3s + local registry | Everything local, self-hosted models only |
+
+#### Option C: Single-Server (Development / Evaluation / Small Deployments)
+
+Everything runs on one machine via Docker Compose:
+
+```
+Docker Compose
+├── nginx (reverse proxy, TLS termination)
+├── Next.js (frontend)
+├── FastAPI (backend)
+├── Keycloak (identity)
+├── PostgreSQL + pgvector (database)
+└── Redis (cache, sessions)
+```
+
+**Minimum server requirements:**
+
+| Spec | Minimum | Recommended |
+|---|---|---|
+| **CPU** | 4 vCPU | 8 vCPU |
+| **RAM** | 8 GB | 16 GB |
+| **Storage** | 50 GB SSD | 100 GB SSD |
+| **OS** | Ubuntu 22.04+ / Amazon Linux 2023 | Ubuntu 24.04 LTS |
+| **Network** | HTTP/HTTPS outbound to model providers | Same + inbound for users |
+
+Resource budget (single-server):
+
+| Service | RAM | CPU | Notes |
+|---|---|---|---|
+| FastAPI (uvicorn, 4 workers) | ~2 GB | 2 cores | Scales with concurrent users |
+| Next.js (Node.js) | ~512 MB | 0.5 cores | Lightweight after SSR |
+| PostgreSQL + pgvector | ~2 GB | 1 core | Grows with data volume |
+| Keycloak | ~1.5 GB | 1 core | Java — memory-hungry |
+| Redis | ~256 MB | 0.25 cores | Minimal at low scale |
+| nginx | ~64 MB | 0.25 cores | Reverse proxy only |
+| OS + Docker overhead | ~1.5 GB | — | Base system |
+| **Total** | **~8 GB** | **~5 cores** | Fits on a t3.xlarge (16 GB) comfortably |
+
+A **t3.large (8 GB)** will technically run it but leaves no headroom. A **t3.xlarge (16 GB, 4 vCPU)** is the right size for development and evaluation with comfortable margin. No GPU required — model inference is handled by external API providers.
+
+**Best for:** Development, demos, evaluation, small deployments under 500 users.
+
+### 5.2 Portability by Design
+
+Every external dependency is abstracted behind an interface:
+
+- **Storage** — S3 in cloud, MinIO on-prem, local filesystem for development
+- **Database** — RDS in cloud, local PostgreSQL on-prem (standard PostgreSQL everywhere)
+- **Model Providers** — External APIs (OpenAI, Anthropic, Google) in cloud, vLLM/Ollama on-prem or air-gapped
+- **Secrets** — AWS Secrets Manager in cloud, HashiCorp Vault or Kubernetes secrets on-prem
+- **Identity** — Keycloak adapts to any IdP regardless of deployment environment
+
+This abstraction means the application code is identical across all deployment options. Only configuration changes.
+
+### 5.3 Air-Gapped Deployments
+
+For classified or high-security environments with no internet access:
+
+- All container images pre-loaded into a private registry
+- Self-hosted models via vLLM or Ollama (no external API calls)
+- Local embedding models for RAG
+- Local content safety classifiers
+- MinIO for S3-compatible object storage
+- Keycloak connected to on-prem Active Directory / LDAP
+
+The platform is fully functional with zero external network dependencies when configured for air-gapped operation.
 
 ## 6. Compliance & Certification Roadmap
 
