@@ -2,12 +2,14 @@
 
 import structlog
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.services.model_router import ModelRouter
 from app.services.providers.anthropic_provider import AnthropicProvider
+from app.services.providers.openai_provider import OpenAIProvider
+from app.services.providers.google_provider import GoogleProvider
 
 settings = get_settings()
 
@@ -48,6 +50,23 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("no_anthropic_api_key")
 
+    # Register OpenAI provider
+    if settings.openai_api_key:
+        openai_provider = OpenAIProvider(api_key=settings.openai_api_key)
+        model_router.register_provider(openai_provider)
+        logger.info("openai_provider_registered")
+
+    # Register Google Gemini provider
+    if settings.google_api_key:
+        google_provider = GoogleProvider(api_key=settings.google_api_key)
+        model_router.register_provider(google_provider)
+        logger.info("google_provider_registered")
+
+    # Extended fallback chains (cross-provider)
+    if settings.anthropic_api_key and settings.openai_api_key:
+        model_router.set_fallback_chain("claude-opus-4-20250514", ["gpt-4o", "claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"])
+        model_router.set_fallback_chain("gpt-4o", ["claude-sonnet-4-20250514", "gpt-4o-mini"])
+
     yield
 
     logger.info("shutting_down_gateway")
@@ -60,6 +79,11 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+# Register consistent error envelope handlers
+from app.core.response import http_exception_handler, generic_exception_handler
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(Exception, generic_exception_handler)
 
 # Middleware stack (order matters — outermost first)
 from app.middleware.request_logger import RequestLoggerMiddleware
@@ -87,6 +111,7 @@ from app.api.v1.admin.quotas import router as admin_quotas_router
 from app.api.v1.admin.audit import router as admin_audit_router
 from app.api.v1.admin.analytics import router as admin_analytics_router
 from app.api.v1.admin.content_policy import router as admin_policy_router
+from app.api.v1.admin.safety_events import router as admin_safety_router
 from app.api.v1.admin.models import router as admin_models_router
 from app.api.v1.files import router as files_router
 from app.api.v1.search import router as search_router
@@ -108,6 +133,7 @@ app.include_router(admin_quotas_router, prefix="/api/v1")
 app.include_router(admin_audit_router, prefix="/api/v1")
 app.include_router(admin_analytics_router, prefix="/api/v1")
 app.include_router(admin_policy_router, prefix="/api/v1")
+app.include_router(admin_safety_router, prefix="/api/v1")
 app.include_router(admin_models_router, prefix="/api/v1")
 app.include_router(files_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")

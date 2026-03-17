@@ -193,6 +193,80 @@ async def cost_breakdown(
     }
 
 
+@router.get("/safety")
+async def safety_analytics(
+    days: int = Query(default=30, ge=1, le=90),
+    tenant: TenantContext = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Content safety event trends."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Try safety_events table first, fall back to audit_log
+    try:
+        from app.models.safety_event import SafetyEvent
+        # By type
+        type_result = await db.execute(
+            select(
+                SafetyEvent.event_type,
+                func.count().label("count"),
+            ).where(
+                SafetyEvent.org_id == tenant.org_id,
+                SafetyEvent.created_at >= since,
+            ).group_by(SafetyEvent.event_type).order_by(desc(func.count()))
+        )
+        by_type = [{"event_type": r.event_type, "count": r.count} for r in type_result.all()]
+
+        # By day
+        daily_result = await db.execute(
+            select(
+                cast(SafetyEvent.created_at, Date).label("date"),
+                func.count().label("count"),
+            ).where(
+                SafetyEvent.org_id == tenant.org_id,
+                SafetyEvent.created_at >= since,
+            ).group_by(cast(SafetyEvent.created_at, Date)).order_by(cast(SafetyEvent.created_at, Date))
+        )
+        by_day = [{"date": str(r.date), "count": r.count} for r in daily_result.all()]
+
+        # By severity
+        severity_result = await db.execute(
+            select(
+                SafetyEvent.severity,
+                func.count().label("count"),
+            ).where(
+                SafetyEvent.org_id == tenant.org_id,
+                SafetyEvent.created_at >= since,
+            ).group_by(SafetyEvent.severity)
+        )
+        by_severity = [{"severity": r.severity, "count": r.count} for r in severity_result.all()]
+
+        total = sum(item["count"] for item in by_type)
+    except Exception:
+        # Fallback to audit_log safety events
+        total_result = await db.execute(
+            select(func.count()).select_from(AuditLog).where(
+                AuditLog.org_id == tenant.org_id,
+                AuditLog.safety_event == True,
+                AuditLog.created_at >= since,
+            )
+        )
+        total = total_result.scalar() or 0
+        by_type = []
+        by_day = []
+        by_severity = []
+
+    return {
+        "data": {
+            "period_days": days,
+            "total_events": total,
+            "by_type": by_type,
+            "by_day": by_day,
+            "by_severity": by_severity,
+        }
+    }
+
+
 @router.get("/chargeback")
 async def chargeback_export(
     days: int = Query(default=30, ge=1, le=90),

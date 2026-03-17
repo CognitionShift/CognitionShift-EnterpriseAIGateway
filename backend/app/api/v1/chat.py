@@ -67,6 +67,20 @@ async def send_message(
     # Content safety check
     safety = check_content_safety(req.content)
     if not safety.safe and safety.action == "block":
+        # Log safety event
+        from app.services.safety_logger import log_safety_event
+        import asyncio
+        asyncio.create_task(log_safety_event(
+            org_id=tenant.org_id,
+            user_id=tenant.user_id,
+            conversation_id=conversation_id,
+            event_type=safety.flags[0] if safety.flags else "content_blocked",
+            action_taken="blocked",
+            flags=safety.details,
+            severity="high",
+            direction="inbound",
+            content_snippet=req.content[:200],
+        ))
         raise HTTPException(
             status_code=422,
             detail={
@@ -208,15 +222,39 @@ async def stream_response(
     user_id: uuid.UUID,
     next_seq: int,
 ):
-    """Generator that streams SSE events."""
+    """Generator that streams SSE events with keepalive heartbeat."""
+    import asyncio
+
     full_response = []
     input_tokens = 0
     output_tokens = 0
     start_time = time.monotonic()
+    last_token_time = time.monotonic()
     actual_model = model_id or "unknown"
 
+    HEARTBEAT_INTERVAL = 15  # seconds
+    MAX_STREAM_DURATION = 600  # 10 minutes
+
     try:
-        async for chunk in model_router.stream(messages, model_id, max_tokens, temperature):
+        stream_iter = model_router.stream(messages, model_id, max_tokens, temperature).__aiter__()
+        while True:
+            # Check max duration
+            elapsed = time.monotonic() - start_time
+            if elapsed > MAX_STREAM_DURATION:
+                yield f"data: {json.dumps({'type': 'error', 'code': 'stream_timeout', 'message': 'Maximum stream duration exceeded'})}\n\n"
+                break
+
+            try:
+                chunk = await asyncio.wait_for(stream_iter.__anext__(), timeout=HEARTBEAT_INTERVAL)
+            except asyncio.TimeoutError:
+                # Send keepalive comment (SSE spec: lines starting with ':' are comments)
+                yield ": keepalive\n\n"
+                continue
+            except StopAsyncIteration:
+                break
+
+            last_token_time = time.monotonic()
+
             if chunk.text:
                 full_response.append(chunk.text)
                 event = {"type": "token", "content": chunk.text}

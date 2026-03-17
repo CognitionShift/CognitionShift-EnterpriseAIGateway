@@ -60,6 +60,16 @@ async def refresh(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
+@router.post("/logout")
+async def logout(tenant: TenantContext = Depends(get_current_user)):
+    """Invalidate current session. Client should discard tokens."""
+    # In a stateless JWT system, true invalidation requires a token blacklist.
+    # For now we return success and rely on short-lived access tokens + client-side cleanup.
+    # TODO: Add Redis-based token blacklist for real invalidation.
+    logger.info("user_logout", user_id=str(tenant.user_id))
+    return {"data": {"message": "Logged out successfully"}, "meta": {"request_id": str(__import__('uuid').uuid4()), "timestamp": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}}
+
+
 @router.get("/me", response_model=UserResponse)
 async def me(tenant: TenantContext = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from app.models.user import User

@@ -1,10 +1,12 @@
 """Model router — resolves model requests, manages providers, handles fallbacks."""
 
+import time
 import structlog
 from typing import AsyncIterator
 from app.services.providers.base import (
     BaseProvider, ChatMessage, ChatResponse, StreamChunk, ModelDefinition
 )
+from app.services.resilience import circuit_breaker, health_tracker, CircuitOpenError
 from app.config import get_settings
 
 logger = structlog.get_logger()
@@ -61,20 +63,41 @@ class ModelRouter:
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ) -> ChatResponse:
-        """Non-streaming chat with fallback."""
+        """Non-streaming chat with circuit breaker, passive health tracking, and fallback."""
         mid, provider, definition = self.resolve_model(model_id)
-        try:
-            return await provider.chat(messages, mid, max_tokens, temperature)
-        except Exception as e:
-            logger.warning("chat_failed_trying_fallback", model=mid, error=str(e))
-            # Try fallback chain
-            for fallback_id in self._fallback_chains.get(mid, []):
-                try:
-                    _, fb_provider, fb_def = self.resolve_model(fallback_id)
-                    return await fb_provider.chat(messages, fallback_id, max_tokens, temperature)
-                except Exception:
+        chain = [mid] + self._fallback_chains.get(mid, [])
+
+        for candidate_id in chain:
+            try:
+                _, cand_provider, _ = self.resolve_model(candidate_id)
+                provider_name = cand_provider.provider_name
+
+                # Skip if circuit is open
+                if not circuit_breaker.is_available(provider_name):
+                    logger.info("circuit_open_skipping", provider=provider_name, model=candidate_id)
                     continue
-            raise AllProvidersUnavailableError(f"All providers failed for {mid}")
+
+                start = time.monotonic()
+                result = await cand_provider.chat(messages, candidate_id, max_tokens, temperature)
+                latency = int((time.monotonic() - start) * 1000)
+
+                # Record success
+                circuit_breaker.record_success(provider_name)
+                health_tracker.record(provider_name, success=True, latency_ms=latency)
+
+                if candidate_id != mid:
+                    logger.info("fallback_used", requested=mid, actual=candidate_id)
+                return result
+            except CircuitOpenError:
+                continue
+            except Exception as e:
+                provider_name = self._model_map.get(candidate_id, ("unknown",))[0]
+                circuit_breaker.record_failure(provider_name)
+                health_tracker.record(provider_name, success=False, latency_ms=0)
+                logger.warning("chat_failed_trying_fallback", model=candidate_id, error=str(e))
+                continue
+
+        raise AllProvidersUnavailableError(f"All providers failed for {mid}")
 
     async def stream(
         self,
@@ -83,22 +106,46 @@ class ModelRouter:
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ) -> AsyncIterator[StreamChunk]:
-        """Streaming chat with pre-stream fallback."""
+        """Streaming chat with circuit breaker, health tracking, and pre-stream fallback."""
         mid, provider, definition = self.resolve_model(model_id)
-        try:
-            async for chunk in provider.stream(messages, mid, max_tokens, temperature):
-                yield chunk
-        except Exception as e:
-            logger.warning("stream_failed_trying_fallback", model=mid, error=str(e))
-            for fallback_id in self._fallback_chains.get(mid, []):
-                try:
-                    _, fb_provider, fb_def = self.resolve_model(fallback_id)
-                    async for chunk in fb_provider.stream(messages, fallback_id, max_tokens, temperature):
-                        yield chunk
-                    return
-                except Exception:
+        chain = [mid] + self._fallback_chains.get(mid, [])
+
+        for candidate_id in chain:
+            try:
+                _, cand_provider, _ = self.resolve_model(candidate_id)
+                provider_name = cand_provider.provider_name
+
+                if not circuit_breaker.is_available(provider_name):
+                    logger.info("circuit_open_skipping_stream", provider=provider_name, model=candidate_id)
                     continue
-            raise AllProvidersUnavailableError(f"All providers failed for {mid}")
+
+                start = time.monotonic()
+                chunk_count = 0
+
+                # Emit fallback meta if using a different model
+                if candidate_id != mid:
+                    yield StreamChunk(text="")  # Signal that stream is starting
+                    logger.info("stream_fallback_used", requested=mid, actual=candidate_id)
+
+                async for chunk in cand_provider.stream(messages, candidate_id, max_tokens, temperature):
+                    chunk_count += 1
+                    yield chunk
+
+                latency = int((time.monotonic() - start) * 1000)
+                circuit_breaker.record_success(provider_name)
+                health_tracker.record(provider_name, success=True, latency_ms=latency)
+                return
+
+            except CircuitOpenError:
+                continue
+            except Exception as e:
+                provider_name = self._model_map.get(candidate_id, ("unknown",))[0]
+                circuit_breaker.record_failure(provider_name)
+                health_tracker.record(provider_name, success=False, latency_ms=0)
+                logger.warning("stream_failed_trying_fallback", model=candidate_id, error=str(e))
+                continue
+
+        raise AllProvidersUnavailableError(f"All providers failed for {mid}")
 
     def list_models(self) -> list[ModelDefinition]:
         """List all available models."""

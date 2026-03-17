@@ -174,6 +174,38 @@ async def get_file(
     }
 
 
+@router.get("/{file_id}/download")
+async def download_file(
+    file_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download file content."""
+    result = await db.execute(
+        select(File).where(
+            File.id == file_id,
+            File.org_id == tenant.org_id,
+            File.deleted_at.is_(None),
+        )
+    )
+    f = result.scalar_one_or_none()
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found")
+    if f.user_id != tenant.user_id and f.access.value == "private":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    import os
+    if not os.path.exists(f.storage_path):
+        raise HTTPException(status_code=404, detail="File content not found on disk")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        path=f.storage_path,
+        filename=f.name,
+        media_type=f.mime_type,
+    )
+
+
 @router.delete("/{file_id}", status_code=204)
 async def delete_file(
     file_id: uuid.UUID,

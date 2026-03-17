@@ -1,8 +1,9 @@
-"""Health check endpoints."""
+"""Health check and system endpoints."""
 
 from fastapi import APIRouter
 from sqlalchemy import text
 from app.database import async_session
+from app.core.response import make_meta
 
 router = APIRouter(tags=["health"])
 
@@ -44,8 +45,33 @@ async def health_detailed():
     except Exception:
         checks["providers"] = {}
 
+    # Passive health stats
+    try:
+        from app.services.resilience import health_tracker
+        for provider_name in checks.get("providers", {}):
+            checks[f"provider_{provider_name}_stats"] = health_tracker.get_stats(provider_name)
+    except Exception:
+        pass
+
     all_ok = checks["database"] and checks["redis"]
     return {
-        "status": "healthy" if all_ok else "degraded",
-        "checks": checks,
+        "data": {
+            "status": "healthy" if all_ok else "degraded",
+            "checks": checks,
+        },
+        "meta": make_meta(),
+    }
+
+
+@router.get("/system/version")
+async def system_version():
+    """Platform version info."""
+    return {
+        "data": {
+            "version": "0.1.0",
+            "name": "CognitionShift Enterprise AI Gateway",
+            "api_version": "v1",
+            "build": "dev",
+        },
+        "meta": make_meta(),
     }
