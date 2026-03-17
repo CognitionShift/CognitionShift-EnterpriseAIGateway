@@ -198,6 +198,70 @@ async def delete_conversation(
     await db.flush()
 
 
+@router.get("/{conversation_id}/export")
+async def export_conversation(
+    conversation_id: uuid.UUID,
+    format: str = "markdown",
+    tenant: TenantContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export conversation as markdown or JSON."""
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.org_id == tenant.org_id,
+            Conversation.user_id == tenant.user_id,
+            Conversation.deleted_at.is_(None),
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    msgs_result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id, Message.deleted_at.is_(None))
+        .order_by(Message.sequence)
+    )
+    messages = msgs_result.scalars().all()
+
+    if format == "json":
+        return {
+            "conversation": {
+                "id": str(conv.id),
+                "title": conv.title,
+                "model_id": conv.model_id,
+                "created_at": conv.created_at.isoformat(),
+            },
+            "messages": [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "model_id": m.model_id,
+                    "tokens": (m.input_tokens or 0) + (m.output_tokens or 0),
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in messages
+            ],
+        }
+    else:
+        # Markdown format
+        lines = [f"# {conv.title or 'Untitled Conversation'}\n"]
+        lines.append(f"*Created: {conv.created_at.isoformat()}*\n")
+        if conv.model_id:
+            lines.append(f"*Model: {conv.model_id}*\n")
+        lines.append("---\n")
+        for m in messages:
+            role_label = "**You:**" if m.role == "user" else f"**AI ({m.model_id or 'unknown'}):**"
+            lines.append(f"\n{role_label}\n\n{m.content}\n")
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            content="\n".join(lines),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename=conversation-{conversation_id}.md"},
+        )
+
+
 @router.get("/{conversation_id}/messages", response_model=list[MessageResponse])
 async def list_messages(
     conversation_id: uuid.UUID,

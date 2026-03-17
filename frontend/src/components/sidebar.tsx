@@ -95,24 +95,33 @@ export function Sidebar({
         ))}
       </div>
 
-      {/* User info */}
-      <div
-        className="px-4 py-3 flex items-center justify-between"
-        style={{ borderTop: "1px solid var(--border)" }}
-      >
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">{user.name}</p>
-          <p className="text-xs truncate" style={{ color: "var(--text-secondary)" }}>
-            {user.email}
-          </p>
-        </div>
-        <button
-          onClick={onLogout}
-          className="text-xs px-2 py-1 rounded hover:bg-[var(--bg-tertiary)]"
+      {/* Footer */}
+      <div style={{ borderTop: "1px solid var(--border)" }}>
+        {/* Dashboard link */}
+        <a
+          href="/dashboard"
+          className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Logout
-        </button>
+          📊 Usage Dashboard
+        </a>
+
+        {/* User info */}
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{user.name}</p>
+            <p className="text-xs truncate" style={{ color: "var(--text-secondary)" }}>
+              {user.email}
+            </p>
+          </div>
+          <button
+            onClick={onLogout}
+            className="text-xs px-2 py-1 rounded hover:bg-[var(--bg-tertiary)]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Logout
+          </button>
+        </div>
       </div>
     </aside>
   );
