@@ -13,6 +13,7 @@ import structlog
 from app.database import get_db, async_session
 from app.middleware.tenant import get_current_user, TenantContext
 from app.models.conversation import Conversation, Message
+from app.services.content_safety import check_content_safety
 from app.models.usage import UsageLog
 from app.schemas.chat import ChatMessageRequest
 from app.services.providers.base import ChatMessage, StreamChunk
@@ -47,6 +48,18 @@ async def send_message(
     conv = result.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Content safety check
+    safety = check_content_safety(req.content)
+    if not safety.safe and safety.action == "block":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "content_blocked",
+                "message": "Message blocked by content safety policy",
+                "flags": safety.flags,
+            },
+        )
 
     # Get next sequence number
     seq_result = await db.execute(

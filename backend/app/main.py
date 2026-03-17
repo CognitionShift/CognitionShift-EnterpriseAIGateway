@@ -76,12 +76,16 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.models_api import router as models_router
+from app.api.v1.usage import router as usage_router
+from app.api.v1.admin.users import router as admin_users_router
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(models_router, prefix="/api/v1")
+app.include_router(usage_router, prefix="/api/v1")
+app.include_router(admin_users_router, prefix="/api/v1")
 
 
 @app.get("/")
