@@ -61,7 +61,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# Middleware stack (order matters — outermost first)
+from app.middleware.request_logger import RequestLoggerMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
+
+app.add_middleware(RequestLoggerMiddleware)
+app.add_middleware(RateLimitMiddleware, user_rpm=60, ip_rpm=200)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -87,6 +92,8 @@ from app.api.v1.files import router as files_router
 from app.api.v1.search import router as search_router
 from app.api.v1.knowledge_bases import router as kb_router
 from app.api.v1.agents import router as agents_router
+from app.api.v1.webhooks import router as webhooks_router
+from app.api.v1.metrics import router as metrics_router
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
@@ -104,6 +111,8 @@ app.include_router(files_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
 app.include_router(kb_router, prefix="/api/v1")
 app.include_router(agents_router, prefix="/api/v1")
+app.include_router(webhooks_router, prefix="/api/v1")
+app.include_router(metrics_router, prefix="/api/v1")
 
 
 @app.get("/")
