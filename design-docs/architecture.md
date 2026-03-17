@@ -46,7 +46,7 @@ The platform is not a chatbot wrapper. It is an **AI operations layer** that sit
 │  ┌────────────────────────▼───────────────────────────────────────┐  │
 │  │                    IDENTITY & ACCESS                           │  │
 │  │  Keycloak (SAML/OIDC/LDAP/SCIM) → Session Management         │  │
-│  │  Multi-Tenant Context (Institution → Campus → Dept → Group)   │  │
+│  │  Multi-Tenant Context (Org → Division → Dept → Team)   │  │
 │  └────────────────────────┬───────────────────────────────────────┘  │
 │                           │                                          │
 │  ┌────────────┐  ┌───────▼────────┐  ┌────────────────────────┐     │
@@ -146,15 +146,15 @@ The platform is not a chatbot wrapper. It is an **AI operations layer** that sit
 ### 3.1 Multi-Tenant Data Model
 
 ```
-Institution (e.g., University of Maine System)
-  ├── Campus (e.g., UMaine Orono, USM, UMA)
-  │     ├── Department (e.g., Computer Science, English)
-  │     │     ├── Group (e.g., CS 101 Fall 2026, Research Lab)
-  │     │     │     ├── User (student, faculty, staff, admin)
+Organization (e.g., Acme Global Corp)
+  ├── Division (e.g., North America, EMEA, APAC)
+  │     ├── Department (e.g., Engineering, Legal, Marketing)
+  │     │     ├── Team (e.g., Platform Engineering, Patent Review)
+  │     │     │     ├── User (employee, contractor, admin)
   │     │     │     └── User
-  │     │     └── Group
+  │     │     └── Team
   │     └── Department
-  └── Campus
+  └── Division
 
 Each level inherits and can override:
   - Model access policies
@@ -169,7 +169,7 @@ Each level inherits and can override:
 ### 3.2 Identity & Access Management
 
 **Supported Protocols:**
-- SAML 2.0 / Shibboleth (higher ed standard)
+- SAML 2.0 / Shibboleth (widely used in education and government)
 - OIDC / OAuth 2.0 (modern enterprise)
 - LDAP / Active Directory (legacy)
 - SCIM 2.0 (automated provisioning/deprovisioning)
@@ -181,7 +181,7 @@ Each level inherits and can override:
 2. Gateway redirects → Keycloak → Institution's IdP
 3. User sees their familiar login page (only visible step)
 4. IdP returns SAML/OIDC assertion with attributes
-5. Keycloak maps: campus, department, role, groups
+5. Keycloak maps: division, department, role, teams
 6. Gateway auto-provisions user with correct permissions
 7. User lands in platform, ready to use
 
@@ -200,24 +200,24 @@ The governance engine is the economic brain of the platform. It answers: **who c
 Quotas are defined at any level of the tenant hierarchy and cascade downward:
 
 ```yaml
-# Example: University of Maine System
-institution:
+# Example: Acme Global Corp
+organization:
   monthly_budget: $50,000
-  campuses:
-    umaine_orono:
+  divisions:
+    north_america:
       monthly_budget: $25,000
       departments:
-        computer_science:
-          monthly_budget: $5,000
-          groups:
-            cs101_fall2026:
-              per_user_daily_tokens: 100,000
-              per_user_daily_cost: $2.00
-              allowed_models: [gpt-4o-mini, claude-sonnet]
-            faculty:
+        engineering:
+          monthly_budget: $10,000
+          teams:
+            platform_engineering:
               per_user_daily_tokens: unlimited
               per_user_daily_cost: $20.00
               allowed_models: [gpt-4o, claude-opus, gemini-2.5-pro]
+            contractors:
+              per_user_daily_tokens: 100,000
+              per_user_daily_cost: $2.00
+              allowed_models: [gpt-4o-mini, claude-sonnet]
 ```
 
 **Enforcement modes:**
@@ -255,7 +255,7 @@ Before any prompt reaches a model:
 
 | Check | Purpose | Action |
 |-------|---------|--------|
-| **PII/PHI Detection** | SSNs, credit cards, health records, student IDs | Strip or block, log attempt |
+| **PII/PHI Detection** | SSNs, credit cards, health records, employee IDs | Strip or block, log attempt |
 | **Prompt Injection Detection** | Jailbreak attempts, system prompt extraction | Block, flag user for review |
 | **CSAM Detection** | Child sexual abuse material indicators | Block immediately, alert admin, log for mandatory reporting |
 | **Toxicity/Hate Speech** | Harassment, threats, discrimination | Block or warn based on policy |
@@ -316,7 +316,7 @@ Enterprise-grade file handling designed for SOC 2 and FedRAMP:
 - **Processing pipeline** — Upload → scan → parse → chunk → embed → index
 - **Sharing** — Permission-based sharing within and across groups (admin-controlled)
 - **Export** — Users can export all their files and data (data portability)
-- **Deletion** — Hard delete with cryptographic verification (for FERPA "right to delete")
+- **Deletion** — Hard delete with cryptographic verification (compliance with data deletion requirements — FERPA, GDPR, CCPA)
 
 ### 3.6 RAG (Retrieval-Augmented Generation)
 
@@ -359,11 +359,11 @@ Agents run in **ephemeral, isolated containers** dynamically provisioned on EKS/
 Pre-built, customizable agent workflows:
 
 - **Research Assistant** — Web search, paper analysis, literature review with citations
-- **Writing Tutor** — Rubric-aware feedback, style analysis, revision suggestions
-- **Code Review Agent** — Analyze student code, suggest improvements, check for plagiarism
-- **Lab Report Analyzer** — Check methodology, verify calculations, suggest improvements
+- **Writing Assistant** — Style analysis, revision suggestions, document review
+- **Code Review Agent** — Analyze code, suggest improvements, enforce coding standards
+- **Document Analyzer** — Check methodology, verify calculations, extract insights
 - **Data Analysis Agent** — Process datasets, generate visualizations, statistical analysis
-- **Course Design Assistant** — Generate syllabi, learning objectives, assessment plans
+- **Workflow Designer** — Generate process documentation, checklists, operational plans
 - **Accessibility Checker** — Audit documents and content for accessibility compliance
 
 #### 3.7.4 Agent Lifecycle
@@ -381,15 +381,15 @@ Pre-built, customizable agent workflows:
 10. Results delivered to user, cost attributed
 ```
 
-### 3.8 LMS Integration (LTI 1.3)
+### 3.8 External Platform Integration
 
-First-class integration with Learning Management Systems:
+First-class integration with enterprise platforms via standard protocols:
 
-- **LTI 1.3 Tool Provider** — Platform launches directly within Brightspace, Canvas, Blackboard, Moodle
-- **Deep Linking** — Instructors embed specific AI tools/agents into course modules
-- **Names and Roles Provisioning** — Auto-map LMS roster to platform groups
-- **Assignment and Grade Services** — AI-assisted feedback can flow back to the LMS gradebook
-- **Context-aware** — The platform knows which course, assignment, and student context it's operating in
+- **LTI 1.3** — Launch directly within LMS platforms (Brightspace, Canvas, Blackboard, Moodle) for education deployments
+- **OAuth 2.0 / OpenID Connect** — Embed within existing enterprise portals and intranets
+- **Webhook & Event API** — Integrate with workflow automation (ServiceNow, Jira, Slack, Teams)
+- **Embeddable Widget** — Drop-in AI assistant for any web application
+- **Context-aware** — The platform understands the originating application context (project, workflow, document)
 
 ### 3.9 Accessibility (WCAG 2.2 AA)
 
@@ -479,7 +479,7 @@ Multiple smaller institutions share infrastructure with logical isolation:
 
 ### 5.3 Hybrid
 
-Large campuses get dedicated, smaller satellite campuses share.
+Large divisions get dedicated, smaller units share.
 
 ---
 
@@ -487,8 +487,8 @@ Large campuses get dedicated, smaller satellite campuses share.
 
 | Standard | Status | Timeline |
 |----------|--------|----------|
-| **SOC 2 Type II** | Data Machines certified (4 years) | Extend to gateway platform |
-| **FERPA** | Data Machines audited & certified | Built into architecture |
+| **SOC 2 Type II** | Certified (maintained 4+ years) | Extend to gateway platform |
+| **FERPA** | Audited & certified | Built into architecture |
 | **FedRAMP** | Architecture designed for compliance | Pursue after initial deployments |
 | **HIPAA** | Architecture supports BAA requirements | Enable for healthcare clients |
 | **WCAG 2.2 AA** | Design constraint from day one | Audit with each release |
