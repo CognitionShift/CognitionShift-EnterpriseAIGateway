@@ -18,6 +18,7 @@ from app.services.quota import check_quota
 from app.models.usage import UsageLog
 from app.schemas.chat import ChatMessageRequest
 from app.services.providers.base import ChatMessage, StreamChunk
+from app.services.stream_manager import stream_manager
 
 logger = structlog.get_logger()
 router = APIRouter(tags=["chat"])
@@ -143,6 +144,16 @@ async def send_message(
     resolved_id, _, _ = model_router.resolve_model(model_id)
 
     if req.stream:
+        # Concurrent stream limit check
+        allowed = await stream_manager.register(tenant.user_id, conversation_id)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "concurrent_stream_limit",
+                    "message": "Too many active streams. Maximum 3 concurrent streams allowed.",
+                },
+            )
         return StreamingResponse(
             stream_response(
                 model_router=model_router,
@@ -284,6 +295,9 @@ async def stream_response(
         yield f"data: {json.dumps(error_event)}\n\n"
         return
 
+    # Unregister stream
+    await stream_manager.unregister(user_id, conversation_id)
+
     # Post-stream: persist message and usage
     latency_ms = int((time.monotonic() - start_time) * 1000)
     complete_text = "".join(full_response)
@@ -305,13 +319,20 @@ async def stream_response(
                 )
                 save_db.add(assistant_msg)
 
+                # Determine provider from model
+                try:
+                    _, provider, _ = model_router.resolve_model(actual_model)
+                    provider_name = provider.provider_name
+                except Exception:
+                    provider_name = "unknown"
+
                 usage = UsageLog(
                     org_id=org_id,
                     user_id=user_id,
                     conversation_id=conversation_id,
                     message_id=assistant_msg.id,
                     model_id=actual_model,
-                    provider="anthropic",
+                    provider=provider_name,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     cost_usd=cost or 0,

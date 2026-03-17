@@ -2,18 +2,33 @@
 
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.tenant import get_current_user, TenantContext
 from app.models.conversation import Conversation, Message
 from app.schemas.chat import ConversationCreate, ConversationUpdate, ConversationResponse, MessageResponse
+from app.core.response import make_meta
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
-@router.post("", response_model=ConversationResponse, status_code=201)
+def _conv_to_dict(conv: Conversation, msg_count: int = 0, preview: str | None = None) -> dict:
+    return {
+        "id": str(conv.id),
+        "title": conv.title,
+        "model_id": conv.model_id,
+        "pinned": conv.pinned,
+        "archived": conv.archived,
+        "created_at": conv.created_at.isoformat(),
+        "updated_at": conv.updated_at.isoformat(),
+        "message_count": msg_count,
+        "last_message_preview": preview,
+    }
+
+
+@router.post("", status_code=201)
 async def create_conversation(
     req: ConversationCreate,
     tenant: TenantContext = Depends(get_current_user),
@@ -28,50 +43,57 @@ async def create_conversation(
     )
     db.add(conv)
     await db.flush()
-    return ConversationResponse(
-        id=conv.id,
-        title=conv.title,
-        model_id=conv.model_id,
-        pinned=conv.pinned,
-        archived=conv.archived,
-        created_at=conv.created_at,
-        updated_at=conv.updated_at,
-        message_count=0,
-    )
+    return {
+        "data": _conv_to_dict(conv),
+        "meta": make_meta(),
+    }
 
 
-@router.get("", response_model=list[ConversationResponse])
+@router.get("")
 async def list_conversations(
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, description="Cursor for pagination (ISO timestamp)"),
     tenant: TenantContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Get conversations with message count
+    """List conversations with cursor-based pagination."""
+    filters = [
+        Conversation.org_id == tenant.org_id,
+        Conversation.user_id == tenant.user_id,
+        Conversation.deleted_at.is_(None),
+    ]
+
+    # Cursor-based: decode cursor as updated_at timestamp
+    if cursor:
+        try:
+            import base64
+            decoded = base64.urlsafe_b64decode(cursor.encode()).decode()
+            cursor_ts = datetime.fromisoformat(decoded)
+            filters.append(Conversation.updated_at < cursor_ts)
+        except Exception:
+            pass  # Invalid cursor, ignore
+
     stmt = (
         select(Conversation)
-        .where(
-            Conversation.org_id == tenant.org_id,
-            Conversation.user_id == tenant.user_id,
-            Conversation.deleted_at.is_(None),
-        )
+        .where(*filters)
         .order_by(desc(Conversation.updated_at))
-        .offset(offset)
-        .limit(limit)
+        .limit(limit + 1)  # Fetch one extra to detect has_more
     )
     result = await db.execute(stmt)
     conversations = result.scalars().all()
 
+    has_more = len(conversations) > limit
+    if has_more:
+        conversations = conversations[:limit]
+
     responses = []
     for conv in conversations:
-        # Count messages
         count_stmt = select(func.count()).select_from(Message).where(
             Message.conversation_id == conv.id, Message.deleted_at.is_(None)
         )
         count_result = await db.execute(count_stmt)
         msg_count = count_result.scalar() or 0
 
-        # Last message preview
         preview = None
         if msg_count > 0:
             last_msg_stmt = (
@@ -85,22 +107,24 @@ async def list_conversations(
             if last_content:
                 preview = last_content[:100] + ("..." if len(last_content) > 100 else "")
 
-        responses.append(ConversationResponse(
-            id=conv.id,
-            title=conv.title,
-            model_id=conv.model_id,
-            pinned=conv.pinned,
-            archived=conv.archived,
-            created_at=conv.created_at,
-            updated_at=conv.updated_at,
-            message_count=msg_count,
-            last_message_preview=preview,
-        ))
+        responses.append(_conv_to_dict(conv, msg_count, preview))
 
-    return responses
+    # Build next cursor
+    import base64
+    next_cursor = None
+    if has_more and conversations:
+        cursor_val = conversations[-1].updated_at.isoformat()
+        next_cursor = base64.urlsafe_b64encode(cursor_val.encode()).decode()
+
+    meta = make_meta()
+    meta["has_more"] = has_more
+    if next_cursor:
+        meta["next_cursor"] = next_cursor
+
+    return {"data": responses, "meta": meta}
 
 
-@router.get("/{conversation_id}", response_model=ConversationResponse)
+@router.get("/{conversation_id}")
 async def get_conversation(
     conversation_id: uuid.UUID,
     tenant: TenantContext = Depends(get_current_user),
@@ -124,19 +148,10 @@ async def get_conversation(
         )
     )
 
-    return ConversationResponse(
-        id=conv.id,
-        title=conv.title,
-        model_id=conv.model_id,
-        pinned=conv.pinned,
-        archived=conv.archived,
-        created_at=conv.created_at,
-        updated_at=conv.updated_at,
-        message_count=count_result.scalar() or 0,
-    )
+    return {"data": _conv_to_dict(conv, count_result.scalar() or 0), "meta": make_meta()}
 
 
-@router.patch("/{conversation_id}", response_model=ConversationResponse)
+@router.patch("/{conversation_id}")
 async def update_conversation(
     conversation_id: uuid.UUID,
     req: ConversationUpdate,
@@ -166,15 +181,7 @@ async def update_conversation(
     conv.updated_at = datetime.now(timezone.utc)
     await db.flush()
 
-    return ConversationResponse(
-        id=conv.id,
-        title=conv.title,
-        model_id=conv.model_id,
-        pinned=conv.pinned,
-        archived=conv.archived,
-        created_at=conv.created_at,
-        updated_at=conv.updated_at,
-    )
+    return {"data": _conv_to_dict(conv), "meta": make_meta()}
 
 
 @router.delete("/{conversation_id}", status_code=204)
@@ -262,11 +269,11 @@ async def export_conversation(
         )
 
 
-@router.get("/{conversation_id}/messages", response_model=list[MessageResponse])
+@router.get("/{conversation_id}/messages")
 async def list_messages(
     conversation_id: uuid.UUID,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = Query(default=None),
     tenant: TenantContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -282,26 +289,51 @@ async def list_messages(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    filters = [Message.conversation_id == conversation_id, Message.deleted_at.is_(None)]
+    if cursor:
+        try:
+            import base64
+            decoded = base64.urlsafe_b64decode(cursor.encode()).decode()
+            cursor_seq = int(decoded)
+            filters.append(Message.sequence > cursor_seq)
+        except Exception:
+            pass
+
     stmt = (
         select(Message)
-        .where(Message.conversation_id == conversation_id, Message.deleted_at.is_(None))
+        .where(*filters)
         .order_by(Message.sequence)
-        .offset(offset)
-        .limit(limit)
+        .limit(limit + 1)
     )
     result = await db.execute(stmt)
     messages = result.scalars().all()
 
-    return [
-        MessageResponse(
-            id=m.id,
-            role=m.role,
-            content=m.content,
-            model_id=m.model_id,
-            input_tokens=m.input_tokens,
-            output_tokens=m.output_tokens,
-            cost_usd=float(m.cost_usd) if m.cost_usd else None,
-            created_at=m.created_at,
-        )
+    has_more = len(messages) > limit
+    if has_more:
+        messages = messages[:limit]
+
+    import base64
+    next_cursor = None
+    if has_more and messages:
+        next_cursor = base64.urlsafe_b64encode(str(messages[-1].sequence).encode()).decode()
+
+    data = [
+        {
+            "id": str(m.id),
+            "role": m.role,
+            "content": m.content,
+            "model_id": m.model_id,
+            "input_tokens": m.input_tokens,
+            "output_tokens": m.output_tokens,
+            "cost_usd": float(m.cost_usd) if m.cost_usd else None,
+            "created_at": m.created_at.isoformat(),
+        }
         for m in messages
     ]
+
+    meta = make_meta()
+    meta["has_more"] = has_more
+    if next_cursor:
+        meta["next_cursor"] = next_cursor
+
+    return {"data": data, "meta": meta}
