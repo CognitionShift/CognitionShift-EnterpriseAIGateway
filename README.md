@@ -32,11 +32,48 @@ An **AI operations layer** that sits between your organization's users and the f
 - [Update](docs/operations/update.md) — Software updates with backup and rollback
 - [Backup & Restore](docs/operations/backup-restore.md) — Database backups, disaster recovery
 
+## Quick Start
+
+```bash
+git clone https://github.com/CognitionShift/CognitionShift-EnterpriseAIGateway.git
+cd CognitionShift-EnterpriseAIGateway
+cp .env.example infra/.env
+# Edit infra/.env with your domain and API keys
+bash infra/generate-env.sh
+docker compose -f infra/docker-compose.prod.yml build
+docker compose -f infra/docker-compose.prod.yml up -d
+```
+
+For the full walkthrough, see [docs/operations/install.md](docs/operations/install.md).
+
+## Configuration & Secrets
+
+⚠️ **Never commit secrets, API keys, passwords, or `.env` files to this repository.**
+
+All sensitive configuration is managed through environment variables. See [`.env.example`](.env.example) for the full list of configuration options with placeholder values. The `.gitignore` excludes `.env` files, but always verify before committing.
+
+For production deployments, see [SECURITY.md](SECURITY.md).
+
 ## License
 
-AGPL-3.0 — See [LICENSE](LICENSE) for details.
+**AGPL-3.0** — See [LICENSE](LICENSE) for details.
 
-Commercial licensing available for organizations that need alternative terms. Contact enterprise@cognitionshift.com.
+### What AGPL-3.0 means for you
+
+- ✅ **Free to use** for internal deployments, evaluation, and development
+- ✅ **Free to modify** and deploy within your organization
+- ✅ **Free to contribute** improvements back to the project
+- ⚠️ **If you modify and distribute** (including offering as a hosted service), you must release your modifications under AGPL-3.0
+
+### Commercial Licensing
+
+For organizations that need terms beyond AGPL-3.0 — including proprietary modifications, OEM embedding, SLA-backed support, or compliance certification assistance — commercial licenses are available.
+
+**Contact:** enterprise@cognitionshift.com
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for our security policy, vulnerability reporting process, and architecture overview.
 
 ## Contributing
 
