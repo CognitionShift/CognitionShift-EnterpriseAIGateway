@@ -229,6 +229,56 @@ The challenge: we want to catch harmful content before it reaches the user, but 
 - **Medium (higher ed/enterprise):** Scan every 50 tokens. Balance between safety and UX.
 - **Low (research):** Partial scanning disabled. Full post-scan only. Maximum speed.
 
+### Safety Halt UX — What Happens When Content Is Blocked Mid-Stream
+
+This is the hardest UX problem in the streaming pipeline. The user has already seen partial tokens, and now we need to stop and explain why.
+
+**Scenario:** After 150 tokens have streamed to the browser, the partial safety scanner flags the content.
+
+**Protocol:**
+
+1. **Stop streaming immediately.** No more token events.
+2. **Send a `safety_halt` event** with structured metadata:
+
+```
+data: {"type": "safety_halt", "code": "content_policy", "tokens_delivered": 150, "message": "Response stopped — content policy violation detected.", "category": "toxicity", "action": "halted"}
+```
+
+3. **Send `done` event** (the stream is finished, even though incomplete):
+
+```
+data: {"type": "done", "usage": {"input_tokens": 200, "output_tokens": 150, "model": "gpt-4o"}, "halted": true}
+```
+
+**Frontend behavior on `safety_halt`:**
+
+1. The partially-rendered message gets a visual indicator — a red/amber border or badge.
+2. The streamed content is **replaced** with a policy message: *"This response was stopped because it violated the content policy. The partial response has been removed."*
+3. The original partial text is **not preserved in the UI** — if the content was harmful enough to halt, it shouldn't remain visible.
+4. A "Try again" button appears, allowing the user to regenerate (which may route to a different model or adjust the system prompt).
+5. Token usage is still charged — the tokens were consumed even though the response was halted.
+
+**Why replace, not append?** Appending "Content blocked" after harmful content means the harmful content is still on screen. Replacing ensures the user never screenshots or copies the flagged content. The full text is preserved in the audit trail (for compliance review), not in the UI.
+
+**Backend behavior on halt:**
+
+1. Partial response is saved to `messages` table with `safety_flags` populated and a `halted` flag.
+2. Full content (pre-halt) is preserved in audit trail — admins can review what triggered the halt.
+3. Safety event logged via `log_safety_event` with `direction="outbound"`, `action_taken="halted_stream"`.
+4. If the halt category is CSAM or similarly severe, the response is additionally escalated per the incident response controls in `threat-model-controls.md`.
+
+**Post-stream full scan (when partial scan didn't catch it):**
+
+If the partial scanner misses something but the full post-stream scan catches it:
+
+1. The message has already been delivered to the user.
+2. The message is **marked in the database** with safety flags.
+3. An admin alert is generated (P2 severity — see `observability-slos.md`).
+4. The frontend does **not** retroactively remove the message (it's already been seen).
+5. The admin can manually review and, if warranted, delete the message and notify the user.
+
+This is the trade-off: we prioritize low latency (stream tokens immediately) at the cost of occasionally delivering content that the full scanner would have caught. The partial scanner handles the obvious cases; the full scanner is the safety net for edge cases.
+
 ---
 
 ## Concurrent Stream Management

@@ -25,8 +25,12 @@ An **AI operations layer** that sits between your organization's users and the f
 - [Caching Strategy](design-docs/caching-strategy.md) — Exact match, semantic, and embedding caches
 - [Testing Strategy](design-docs/testing-strategy.md) — Unit, integration, e2e, load, accessibility, and security testing
 
-### User Documentation
-- [User Docs](docs/) — Coming soon
+### Operations Documentation ([AEOS](https://github.com/CognitionShift/AEOS) format)
+- [Install](docs/operations/install.md) — Deploy from scratch on a single server
+- [Configure](docs/operations/configure.md) — Models, content safety, quotas, users
+- [Operate](docs/operations/operate.md) — Monitoring, health checks, troubleshooting
+- [Update](docs/operations/update.md) — Software updates with backup and rollback
+- [Backup & Restore](docs/operations/backup-restore.md) — Database backups, disaster recovery
 
 ## License
 

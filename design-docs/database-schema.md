@@ -601,6 +601,73 @@ This provides a cryptographic guarantee: ephemeral content never touches disk.
 
 ---
 
+## Hard Delete & Cryptographic Erasure
+
+Soft delete (`deleted_at` timestamp) is the default for all user-facing data. Hard deletion is a separate, controlled process for compliance.
+
+### When Hard Delete Happens
+
+| Trigger | Process | Timeline |
+|---------|---------|----------|
+| **Retention policy expiration** | Automated nightly job checks `deleted_at` + retention period | `deleted_at` + retention days (configurable per tenant, default 90 days) |
+| **User data deletion request** | GDPR Art. 17 / CCPA / FERPA right-to-delete | Within 30 days of verified request |
+| **Tenant offboarding** | Full org deletion after contract termination | Per contract terms, typically 30-90 day grace period |
+| **Court order / legal hold release** | Manual process after legal review | After hold is released |
+
+### Hard Delete Process
+
+```
+1. Verify: Confirm deletion is authorized (retention expired, request approved, no legal hold)
+2. Enumerate: Collect all records for the target (user, conversation, or org)
+3. Backup: Create a deletion manifest listing every record to be deleted (for audit)
+4. Delete data:
+   a. PostgreSQL: DELETE FROM ... WHERE id IN (...) for each table
+   b. S3: Delete objects matching the target's storage keys
+   c. Redis: DEL keys matching the target's session/cache keys
+   d. Embeddings: DELETE FROM embeddings WHERE document_id IN (...)
+5. Verify deletion:
+   a. SELECT COUNT(*) for each table — confirm zero remaining
+   b. S3 HEAD requests — confirm objects are gone
+6. Log: Write deletion event to audit trail (what was deleted, who authorized, timestamp)
+   Note: Audit trail entry records the deletion but NOT the deleted content
+7. For encrypted data: Destroy the tenant-specific encryption key (cryptographic erasure)
+   - Once the key is destroyed, any backup copies of the encrypted data are irrecoverable
+```
+
+### Cryptographic Erasure
+
+For tenants with dedicated encryption keys (enterprise/HIPAA/FedRAMP deployments):
+
+- Each tenant's data is encrypted with a tenant-specific KMS key
+- Hard deletion includes destroying the KMS key via `ScheduleKeyDeletion` (7-day waiting period per AWS policy)
+- After key destruction, all encrypted data — including data in backups, replicas, and S3 archives — is permanently irrecoverable without the key
+- This is the strongest deletion guarantee: even if a backup tape surfaces years later, the data cannot be decrypted
+
+### Legal Holds
+
+A legal hold freezes all deletion (soft and hard) for specific users or tenants:
+
+```sql
+CREATE TABLE legal_holds (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id          UUID NOT NULL REFERENCES organizations(id),
+    scope           TEXT NOT NULL CHECK (scope IN ('org', 'user', 'conversation')),
+    scope_id        UUID NOT NULL,
+    reason          TEXT NOT NULL,
+    created_by      UUID NOT NULL REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    released_at     TIMESTAMPTZ,
+    released_by     UUID REFERENCES users(id)
+);
+```
+
+While a legal hold is active:
+- The retention job skips records covered by the hold
+- Manual deletion requests are rejected with a reference to the hold
+- The hold itself is logged to the audit trail
+
+---
+
 ## Migration Strategy
 
 - **Alembic** for schema migrations (standard for SQLAlchemy/FastAPI)

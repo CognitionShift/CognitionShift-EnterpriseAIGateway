@@ -187,7 +187,7 @@ This document defines the threat model for CognitionShift Enterprise AI Gateway 
 |---------|------------|----------------|------------|
 | **CSAFE-01: CSAM Detection & Reporting** | Mandatory detection and law enforcement reporting | PhotoDNA or equivalent hash-matching on all uploaded images. Text-based CSAM indicators flagged by content classifier. **Cannot be disabled by any tenant or admin.** Detection triggers: immediate block, admin alert, evidence preservation, mandatory report to NCMEC CyberTipline within 24 hours. | 18 U.S.C. §2258A (federal mandatory reporting) · SOC 2 CC6.5 |
 | **CSAFE-02: DLP / Data Loss Prevention** | Prevent sensitive data exfiltration via AI prompts | Configurable DLP rules per tenant. Built-in patterns: SSN, credit card (Luhn-validated), medical record numbers, ITAR-controlled terminology. Custom regex patterns per tenant. Actions: block, redact, warn. All DLP events logged regardless of action taken. | SOC 2 CC6.5 · FedRAMP SC-7(8) · HIPAA §164.312(a)(2)(iv) |
-| **CSAFE-03: Prompt Injection Defense** | Prevent jailbreak and prompt extraction | Multi-layer defense: input validation (encoding, length, structure), known-pattern matching (updated from threat intelligence feeds), LLM-based classifier for novel injection patterns, system prompt isolation (never user-accessible). Detected attempts: blocked + logged + user flagged for review. | SOC 2 CC6.5 · FedRAMP SI-3, SI-10 |
+| **CSAFE-03: Prompt Injection Defense** | Prevent jailbreak and prompt extraction | Multi-layer defense: input validation (encoding, length, structure), known-pattern matching (updated from threat intelligence feeds), LLM-based classifier for novel injection patterns, system prompt isolation (never user-accessible). Detected attempts: blocked + logged + user flagged for review. See **Section 10: Prompt Injection Defense Architecture** for implementation details. | SOC 2 CC6.5 · FedRAMP SI-3, SI-10 |
 
 ### 4.8 Availability Controls
 
@@ -342,3 +342,161 @@ These security decisions are identified but not yet finalized:
 3. **FIPS 140-2 Compliance** — Required for FedRAMP Moderate+. AWS provides FIPS endpoints. Application-level crypto must use FIPS-validated modules. Decision: use AWS CloudHSM for key management in FedRAMP deployments, standard KMS elsewhere.
 
 4. **Log Shipping Destination** — CloudWatch (AWS-native, simple) vs. self-hosted ELK/Loki (portable, more control) vs. both. Decision: OpenTelemetry export allows multiple backends — ship to CloudWatch for AWS deployments, customer-specified SIEM for enterprise.
+
+---
+
+## 10. Prompt Injection Defense Architecture
+
+Prompt injection is the most active attack vector against AI gateways. Regex pattern matching (our current implementation) catches known patterns but fails against novel attacks, encoding tricks, and multilingual injection. This section specifies the layered defense.
+
+### 10.1 Defense Layers
+
+```
+User Input
+    │
+    ▼
+Layer 1: Input Validation & Normalization
+    │  • Unicode normalization (NFC)
+    │  • Strip invisible characters (zero-width spaces, RTL overrides)
+    │  • Decode nested encodings (base64, hex, URL-encoded within prompt)
+    │  • Enforce max input length (configurable, default 32K chars)
+    │  • Reject binary content in text fields
+    │
+    ▼
+Layer 2: Known Pattern Matching (Fast, Synchronous)
+    │  • Regex patterns for known injection phrases (current implementation)
+    │  • Updated from threat intelligence feeds (OWASP LLM Top 10, HackerOne reports)
+    │  • Token-level pattern matching (catches obfuscation like "ig.nore prev.ious")
+    │  • Multilingual patterns (common injections translated to top 10 languages)
+    │  • Latency budget: <5ms
+    │
+    ▼
+Layer 3: Structural Analysis (Fast, Synchronous)
+    │  • Detect role-boundary injection (user text containing system/assistant markers)
+    │  • Detect prompt-template injection (Jinja/f-string/mustache syntax)
+    │  • Detect XML/JSON/YAML structure injection
+    │  • Detect excessive repetition (token-bombing / context exhaustion)
+    │  • Latency budget: <10ms
+    │
+    ▼
+Layer 4: ML Classifier (Async, Optional)
+    │  • Lightweight classifier trained on injection/benign corpus
+    │  • Options:
+    │    a. Self-hosted: Fine-tuned BERT/DeBERTa (~50M params, <100ms on CPU)
+    │    b. Third-party: Azure AI Content Safety prompt shields
+    │    c. LLM-as-judge: Ask a fast model "Is this a prompt injection?" (expensive, ~500ms)
+    │  • Returns confidence score (0.0–1.0)
+    │  • Latency budget: <200ms (async, doesn't block if layer 1-3 passed)
+    │
+    ▼
+Layer 5: System Prompt Isolation
+       • System prompts are NEVER included in user-visible context
+       • System prompts are injected server-side, not via API
+       • The model sees system/user/assistant roles; user cannot set system role
+       • Output never includes system prompt content (output scanner checks for leakage)
+```
+
+### 10.2 Action Matrix
+
+| Layer | Confidence | Action |
+|-------|-----------|--------|
+| Layer 2: Known pattern | Match | Block immediately. Log. Flag user. |
+| Layer 3: Structural | High confidence injection markers | Block. Log. |
+| Layer 3: Structural | Suspicious but ambiguous | Add `[INJECTION_WARNING]` flag to audit, allow through. |
+| Layer 4: ML classifier | Score ≥ 0.9 | Block. Log. Flag user for review. |
+| Layer 4: ML classifier | Score 0.7–0.9 | Allow but: add safety prefix to system prompt, log with warning, increase outbound scan sensitivity. |
+| Layer 4: ML classifier | Score < 0.7 | Allow normally. |
+| Layer 5: Output leak | System prompt detected in output | Strip from output. Log. Alert admin. |
+
+### 10.3 System Prompt Protection
+
+The system prompt is the highest-value target for injection attacks. Protection:
+
+1. **Server-side injection only.** The system prompt is prepended by the gateway, never passed by the client. The API accepts `system_prompt_override` only for admin-level users.
+
+2. **Output scanning for leakage.** The outbound safety scanner checks if the model's response contains the system prompt (or significant substrings). If detected, the response is modified to remove the leaked content.
+
+3. **Canary tokens.** Each system prompt includes a unique, random canary string. If the canary appears in the model output, it proves the model was tricked into revealing the system prompt.
+
+```python
+CANARY_PREFIX = "CSG-CANARY-"
+
+def inject_canary(system_prompt: str) -> tuple[str, str]:
+    """Add canary token to system prompt. Returns (modified_prompt, canary)."""
+    canary = f"{CANARY_PREFIX}{secrets.token_hex(8)}"
+    modified = f"{system_prompt}\n\n[Internal reference: {canary}]"
+    return modified, canary
+
+def check_canary_leak(output: str, canary: str) -> bool:
+    """Check if canary token leaked into model output."""
+    return canary in output or CANARY_PREFIX in output
+```
+
+### 10.4 Encoding Attack Prevention
+
+Attackers encode injection payloads to bypass regex:
+- Base64: `aWdub3JlIHByZXZpb3VzIGluc3RydWN0aW9ucw==`
+- Hex: `\x69\x67\x6e\x6f\x72\x65`
+- Unicode confusables: `іgnоre` (Cyrillic і and о look identical to Latin)
+- Zero-width characters: invisible characters between letters
+- ROT13, pig latin, reversed text
+
+**Mitigation:** Layer 1 normalizes all text before any other scanning:
+
+```python
+import unicodedata
+
+def normalize_for_scanning(text: str) -> str:
+    """Normalize text to catch encoding-based evasion."""
+    # Unicode NFC normalization
+    text = unicodedata.normalize("NFC", text)
+    
+    # Strip zero-width and invisible characters
+    text = re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff\u00ad]', '', text)
+    
+    # Normalize confusable characters (Cyrillic→Latin, etc.)
+    # Uses Unicode confusables.txt mapping
+    text = normalize_confusables(text)
+    
+    # Detect and decode embedded base64
+    base64_pattern = re.compile(r'[A-Za-z0-9+/]{20,}={0,2}')
+    for match in base64_pattern.finditer(text):
+        try:
+            decoded = base64.b64decode(match.group()).decode('utf-8', errors='ignore')
+            if any(kw in decoded.lower() for kw in ['ignore', 'system', 'instruction', 'override']):
+                text = text.replace(match.group(), decoded)
+        except Exception:
+            pass
+    
+    return text
+```
+
+### 10.5 Metrics & Feedback Loop
+
+```
+# Injection detection metrics (feed into observability-slos.md alerts)
+safety.injection.detected               {layer, severity, action}
+safety.injection.false_positive_reported {layer}
+safety.injection.encoding_evasion       {encoding_type}
+safety.system_prompt_leak.detected      {}
+safety.canary_leak.detected             {}
+```
+
+False positive reports (user clicks "this isn't an injection") feed back into the ML classifier training pipeline. High false-positive rates on specific patterns trigger review and threshold adjustment.
+
+### 10.6 Limitations & Honest Assessment
+
+No prompt injection defense is 100% effective. LLMs are instruction-following machines by design — telling them to ignore instructions is always going to be an arms race.
+
+**What we can guarantee:**
+- Known attack patterns are blocked
+- Encoding evasion is mitigated by normalization
+- System prompts are protected by canary tokens and output scanning
+- All attempts are logged for forensic review
+
+**What we cannot guarantee:**
+- Novel injection techniques not in our pattern database
+- Semantic injection that reads like normal conversation
+- Attacks that exploit model-specific training artifacts
+
+**Our strategy:** Defense in depth. No single layer needs to be perfect. The combination of normalization + pattern matching + structural analysis + ML classification + output scanning catches the vast majority of attacks. The rest is caught by the audit trail and admin review.

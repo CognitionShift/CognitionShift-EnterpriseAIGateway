@@ -19,6 +19,8 @@ from app.models.usage import UsageLog
 from app.schemas.chat import ChatMessageRequest
 from app.services.providers.base import ChatMessage, StreamChunk
 from app.services.stream_manager import stream_manager
+from app.services.outbound_safety import scan_outbound
+from app.services.safety_logger import log_safety_event
 from app.api.v1.webhooks import dispatch_webhook_event
 
 logger = structlog.get_logger()
@@ -236,13 +238,35 @@ async def send_message(
                 },
             ))
 
+            # Outbound safety scan
+            outbound_result = scan_outbound(response.content)
+            final_content = response.content
+            safety_flags_out = None
+            if not outbound_result.clean:
+                final_content = outbound_result.modified_content or "[Response blocked by content policy]"
+                safety_flags_out = outbound_result.flags
+                asyncio.create_task(log_safety_event(
+                    org_id=tenant.org_id,
+                    user_id=tenant.user_id,
+                    conversation_id=conversation_id,
+                    event_type=outbound_result.flags[0] if outbound_result.flags else "output_blocked",
+                    action_taken="blocked" if outbound_result.modified_content == "[Response blocked by content policy]" else "redacted",
+                    flags={"outbound_flags": outbound_result.flags, "pii": outbound_result.pii_found},
+                    severity="high" if not outbound_result.clean else "low",
+                    direction="outbound",
+                ))
+            elif outbound_result.modified_content:
+                final_content = outbound_result.modified_content
+                safety_flags_out = outbound_result.flags
+
             return {
                 "data": {
-                    "content": response.content,
+                    "content": final_content,
                     "model": response.model,
                     "input_tokens": response.input_tokens,
                     "output_tokens": response.output_tokens,
                     "finish_reason": response.finish_reason,
+                    **({"safety_flags": safety_flags_out} if safety_flags_out else {}),
                 }
             }
         except Exception as e:
@@ -326,11 +350,31 @@ async def stream_response(
     # Unregister stream
     await stream_manager.unregister(user_id, conversation_id)
 
-    # Post-stream: persist message and usage
+    # Post-stream: outbound safety scan + persist message and usage
     latency_ms = int((time.monotonic() - start_time) * 1000)
     complete_text = "".join(full_response)
 
     if complete_text:
+        # Run outbound safety on the complete response
+        outbound_result = scan_outbound(complete_text)
+        safety_flags_out = None
+        if outbound_result.flags:
+            safety_flags_out = outbound_result.flags
+            severity = "high" if not outbound_result.clean else "low"
+            try:
+                await log_safety_event(
+                    org_id=org_id,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    event_type=outbound_result.flags[0] if outbound_result.flags else "output_flagged",
+                    action_taken="flagged_post_stream",
+                    flags={"outbound_flags": outbound_result.flags, "pii": outbound_result.pii_found},
+                    severity=severity,
+                    direction="outbound",
+                    content_snippet=complete_text[:200],
+                )
+            except Exception as e:
+                logger.error("outbound_safety_log_error", error=str(e))
         try:
             cost = _calc_cost(model_id, input_tokens, output_tokens, model_router)
             async with async_session() as save_db:

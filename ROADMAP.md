@@ -16,6 +16,46 @@ A customer who can chat with governed, safe, audited access to frontier models o
 
 ---
 
+## Implementation Sequencing — Build Order
+
+The order matters. Each layer depends on the one below it. Building out of order creates integration debt.
+
+```
+1. Core Chat + Streaming Pipeline        ← the product's heartbeat
+   └─ Model router, SSE streaming, conversation persistence
+   └─ This is what users touch. If this is broken, nothing else matters.
+
+2. Governance Engine (Quotas + Cost)      ← the business model
+   └─ Without cost tracking, we can't sell. Without quotas, we can't govern.
+   └─ Must be in the request pipeline before any pilot.
+
+3. Content Safety (Inbound → Outbound)    ← the trust layer
+   └─ Inbound first (block bad input), then outbound (catch bad output).
+   └─ Streaming safety halt depends on (1) being solid.
+   └─ Enterprise buyers ask about this in the first meeting.
+
+4. Audit Trail                            ← the compliance backbone
+   └─ Append-only, tamper-proof. Every action logged.
+   └─ FERPA/HIPAA/SOC 2 auditors will ask for this on day one.
+
+5. Identity (SSO + SCIM)                  ← the enterprise on-ramp
+   └─ Institutions won't manage another user database.
+   └─ Built-in auth is fine for pilots; SSO is required for contracts.
+
+6. File Management + RAG                  ← the differentiation
+   └─ Upload docs → chunk → embed → retrieve → cite.
+   └─ This is where the product becomes more than a ChatGPT wrapper.
+
+7. Agent Execution                        ← the moat
+   └─ Governed agentic AI is what no one else offers in this space.
+   └─ Depends on all prior layers (auth, quotas, safety, audit).
+   └─ Build the isolation layer (agent-isolation.md) properly.
+```
+
+**Do not skip ahead.** Phase 1 (chat) and Phase 2 (governance + safety) are the minimum viable product. Everything after that is expansion. A pilot customer with governed chat is more valuable than a demo with half-built agents.
+
+---
+
 ## Phase 1: Foundation (Weeks 1–4)
 
 **Goal:** A user can log in, chat with a model, and an admin can see what happened.
