@@ -1,33 +1,30 @@
-# Dependencies
-node_modules/
+# Python
 __pycache__/
-*.pyc
-.venv/
-venv/
-
-# Build
-dist/
-build/
+*.py[cod]
 *.egg-info/
+dist/
+.eggs/
+*.egg
+
+# Node
+node_modules/
+.next/
+out/
 
 # Environment
 .env
-.env.local
-.env.production
+*.env.local
 
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
+
+# Docker
+*.log
+
+# Uploads
+backend/uploads/
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Secrets
-*.pem
-*.key
-*secret*
-*token*
-ROADMAP.md
