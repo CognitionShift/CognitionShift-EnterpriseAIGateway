@@ -16,12 +16,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Enum types (IF NOT EXISTS for idempotent reruns)
-    op.execute("DO $$ BEGIN CREATE TYPE model_visibility AS ENUM ('private', 'department', 'organization'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
-    op.execute("DO $$ BEGIN CREATE TYPE version_status AS ENUM ('draft', 'published', 'deprecated'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
-    op.execute("DO $$ BEGIN CREATE TYPE access_grantee_type AS ENUM ('user', 'department', 'organization'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
-    op.execute("DO $$ BEGIN CREATE TYPE access_permission AS ENUM ('view', 'use', 'edit', 'admin'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
-
     # Model registry
     op.create_table('model_registry',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
@@ -29,7 +23,7 @@ def upgrade() -> None:
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('display_name', sa.Text(), nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('visibility', sa.Enum('private', 'department', 'organization', name='model_visibility', create_type=False), nullable=False, server_default='private'),
+        sa.Column('visibility', sa.Enum('private', 'department', 'organization', name='model_visibility'), nullable=False, server_default='private'),
         sa.Column('department_id', UUID(as_uuid=True), sa.ForeignKey('departments.id'), nullable=True),
         sa.Column('tags', JSONB(), nullable=False, server_default='[]'),
         sa.Column('created_by', UUID(as_uuid=True), sa.ForeignKey('users.id'), nullable=False),
@@ -47,7 +41,7 @@ def upgrade() -> None:
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('model_id', UUID(as_uuid=True), sa.ForeignKey('model_registry.id', ondelete='CASCADE'), nullable=False),
         sa.Column('version', sa.String(50), nullable=False),
-        sa.Column('status', sa.Enum('draft', 'published', 'deprecated', name='version_status', create_type=False), nullable=False, server_default='draft'),
+        sa.Column('status', sa.Enum('draft', 'published', 'deprecated', name='version_status'), nullable=False, server_default='draft'),
         sa.Column('release_notes', sa.Text(), nullable=True),
         sa.Column('training_data', JSONB(), nullable=True),
         sa.Column('intended_use', sa.Text(), nullable=True),
@@ -71,9 +65,9 @@ def upgrade() -> None:
     op.create_table('model_access',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('model_id', UUID(as_uuid=True), sa.ForeignKey('model_registry.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('grantee_type', sa.Enum('user', 'department', 'organization', name='access_grantee_type', create_type=False), nullable=False),
+        sa.Column('grantee_type', sa.Enum('user', 'department', 'organization', name='access_grantee_type'), nullable=False),
         sa.Column('grantee_id', UUID(as_uuid=True), nullable=False),
-        sa.Column('permission', sa.Enum('view', 'use', 'edit', 'admin', name='access_permission', create_type=False), nullable=False),
+        sa.Column('permission', sa.Enum('view', 'use', 'edit', 'admin', name='access_permission'), nullable=False),
         sa.Column('granted_by', UUID(as_uuid=True), sa.ForeignKey('users.id'), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
     )
