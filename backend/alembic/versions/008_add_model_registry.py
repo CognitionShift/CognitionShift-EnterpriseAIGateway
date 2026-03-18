@@ -16,11 +16,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Enum types
-    op.execute("CREATE TYPE model_visibility AS ENUM ('private', 'department', 'organization')")
-    op.execute("CREATE TYPE version_status AS ENUM ('draft', 'published', 'deprecated')")
-    op.execute("CREATE TYPE access_grantee_type AS ENUM ('user', 'department', 'organization')")
-    op.execute("CREATE TYPE access_permission AS ENUM ('view', 'use', 'edit', 'admin')")
+    # Enum types (IF NOT EXISTS for idempotent reruns)
+    op.execute("DO $$ BEGIN CREATE TYPE model_visibility AS ENUM ('private', 'department', 'organization'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE version_status AS ENUM ('draft', 'published', 'deprecated'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE access_grantee_type AS ENUM ('user', 'department', 'organization'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE access_permission AS ENUM ('view', 'use', 'edit', 'admin'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
 
     # Model registry
     op.create_table('model_registry',
