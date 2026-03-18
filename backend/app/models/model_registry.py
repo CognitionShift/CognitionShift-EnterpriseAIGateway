@@ -44,7 +44,7 @@ class RegisteredModel(Base):
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     visibility: Mapped[ModelVisibility] = mapped_column(
-        Enum(ModelVisibility, name="model_visibility"), nullable=False, default=ModelVisibility.private
+        Enum(ModelVisibility, name="model_visibility", create_type=False), nullable=False, default=ModelVisibility.private
     )
     department_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("departments.id"), nullable=True)
     tags: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
@@ -65,7 +65,7 @@ class ModelVersion(Base):
     model_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("model_registry.id"), nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[VersionStatus] = mapped_column(
-        Enum(VersionStatus, name="version_status"), nullable=False, default=VersionStatus.draft
+        Enum(VersionStatus, name="version_status", create_type=False), nullable=False, default=VersionStatus.draft
     )
     release_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     training_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -91,11 +91,11 @@ class ModelAccess(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     model_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("model_registry.id"), nullable=False)
     grantee_type: Mapped[AccessGranteeType] = mapped_column(
-        Enum(AccessGranteeType, name="access_grantee_type"), nullable=False
+        Enum(AccessGranteeType, name="access_grantee_type", create_type=False), nullable=False
     )
     grantee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     permission: Mapped[AccessPermission] = mapped_column(
-        Enum(AccessPermission, name="access_permission"), nullable=False
+        Enum(AccessPermission, name="access_permission", create_type=False), nullable=False
     )
     granted_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
