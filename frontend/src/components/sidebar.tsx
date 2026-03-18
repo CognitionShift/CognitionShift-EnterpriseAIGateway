@@ -154,6 +154,13 @@ export function Sidebar({
           🤖 AI Agents
         </a>
         <a
+          href="/models/registry"
+          className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          📦 Model Registry
+        </a>
+        <a
           href="/files"
           className="flex items-center gap-2 px-4 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
           style={{ color: "var(--text-secondary)" }}

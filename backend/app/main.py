@@ -121,6 +121,7 @@ from app.api.v1.webhooks import router as webhooks_router
 from app.api.v1.metrics import router as metrics_router
 from app.api.v1.api_keys import router as api_keys_router
 from app.api.v1.prompt_library import router as prompts_router
+from app.api.v1.registry import router as registry_router
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
@@ -143,6 +144,7 @@ app.include_router(webhooks_router, prefix="/api/v1")
 app.include_router(metrics_router, prefix="/api/v1")
 app.include_router(api_keys_router, prefix="/api/v1")
 app.include_router(prompts_router, prefix="/api/v1")
+app.include_router(registry_router, prefix="/api/v1")
 
 
 @app.get("/")

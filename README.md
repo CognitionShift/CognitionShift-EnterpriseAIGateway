@@ -23,6 +23,7 @@ An **AI operations layer** that sits between your organization's users and the f
 - [API Contract](design-docs/api-contract.md) — REST API specification, all endpoints, request/response formats
 - [Model Resilience](design-docs/model-resilience.md) — Health checking, fallback chains, circuit breakers, retry logic
 - [Caching Strategy](design-docs/caching-strategy.md) — Exact match, semantic, and embedding caches
+- [Model Registry](design-docs/model-registry.md) — Institutional AI model catalog, versioning, access controls
 - [Testing Strategy](design-docs/testing-strategy.md) — Unit, integration, e2e, load, accessibility, and security testing
 
 ### Operations Documentation ([AEOS](https://github.com/CognitionShift/AEOS) format)

@@ -7,10 +7,12 @@ from app.models.usage import UsageLog
 from app.models.quota import Quota
 from app.models.file import File, FileChunk, KnowledgeBase
 from app.models.agent import AgentTemplate, AgentExecution
+from app.models.model_registry import RegisteredModel, ModelVersion, ModelAccess
 
 __all__ = [
     "Organization", "Division", "Department", "Team",
     "User", "TeamMembership",
     "Conversation", "Message",
     "ApiKey", "AuditLog", "UsageLog",
+    "RegisteredModel", "ModelVersion", "ModelAccess",
 ]
