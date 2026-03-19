@@ -8,6 +8,7 @@ from app.models.quota import Quota
 from app.models.file import File, FileChunk, KnowledgeBase
 from app.models.agent import AgentTemplate, AgentExecution
 from app.models.model_registry import RegisteredModel, ModelVersion, ModelAccess
+from app.models.context_job import ContextExportJob, ContextImportJob
 
 __all__ = [
     "Organization", "Division", "Department", "Team",
@@ -15,4 +16,5 @@ __all__ = [
     "Conversation", "Message",
     "ApiKey", "AuditLog", "UsageLog",
     "RegisteredModel", "ModelVersion", "ModelAccess",
+    "ContextExportJob", "ContextImportJob",
 ]
