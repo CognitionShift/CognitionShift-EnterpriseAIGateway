@@ -32,7 +32,7 @@ class ContextExportJob(Base):
     org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     status: Mapped[ExportJobStatus] = mapped_column(
-        Enum(ExportJobStatus, name="export_job_status"), nullable=False, default=ExportJobStatus.pending
+        Enum(ExportJobStatus, name="export_job_status", create_type=False), nullable=False, default=ExportJobStatus.pending
     )
     options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -49,7 +49,7 @@ class ContextImportJob(Base):
     org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     status: Mapped[ImportJobStatus] = mapped_column(
-        Enum(ImportJobStatus, name="import_job_status"), nullable=False, default=ImportJobStatus.pending
+        Enum(ImportJobStatus, name="import_job_status", create_type=False), nullable=False, default=ImportJobStatus.pending
     )
     options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
