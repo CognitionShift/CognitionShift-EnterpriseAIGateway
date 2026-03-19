@@ -6,8 +6,6 @@ Create Date: 2026-03-18
 """
 from typing import Sequence, Union
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 revision: str = '009'
 down_revision: Union[str, None] = '008'
@@ -16,53 +14,56 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Export job status enum (use raw SQL for IF NOT EXISTS support in async)
-    op.execute("DO $$ BEGIN CREATE TYPE export_job_status AS ENUM ('pending', 'running', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE export_job_status AS ENUM ('pending', 'running', 'completed', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE import_job_status AS ENUM ('pending', 'running', 'importing', 're_embedding', 'completed', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
 
-    # Import job status enum
-    op.execute("DO $$ BEGIN CREATE TYPE import_job_status AS ENUM ('pending', 'running', 'importing', 're_embedding', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS context_export_jobs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            org_id UUID NOT NULL REFERENCES organizations(id),
+            user_id UUID NOT NULL REFERENCES users(id),
+            status export_job_status NOT NULL DEFAULT 'pending',
+            options JSONB NOT NULL DEFAULT '{}',
+            file_path TEXT,
+            file_size BIGINT,
+            error_message TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            completed_at TIMESTAMPTZ
+        );
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_export_jobs_user ON context_export_jobs (org_id, user_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_export_jobs_status ON context_export_jobs (status)")
 
-    export_status = sa.Enum('pending', 'running', 'completed', 'failed', name='export_job_status', create_type=False)
-    import_status = sa.Enum('pending', 'running', 'importing', 're_embedding', 'completed', 'failed', name='import_job_status', create_type=False)
-
-    # Context export jobs
-    op.create_table(
-        'context_export_jobs',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True),
-        sa.Column('org_id', UUID(as_uuid=True), sa.ForeignKey('organizations.id'), nullable=False),
-        sa.Column('user_id', UUID(as_uuid=True), sa.ForeignKey('users.id'), nullable=False),
-        sa.Column('status', export_status, nullable=False, server_default='pending'),
-        sa.Column('options', JSONB, nullable=False, server_default='{}'),
-        sa.Column('file_path', sa.Text, nullable=True),
-        sa.Column('file_size', sa.BigInteger, nullable=True),
-        sa.Column('error_message', sa.Text, nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
-    )
-    op.create_index('ix_export_jobs_user', 'context_export_jobs', ['org_id', 'user_id'])
-    op.create_index('ix_export_jobs_status', 'context_export_jobs', ['status'])
-
-    # Context import jobs
-    op.create_table(
-        'context_import_jobs',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True),
-        sa.Column('org_id', UUID(as_uuid=True), sa.ForeignKey('organizations.id'), nullable=False),
-        sa.Column('user_id', UUID(as_uuid=True), sa.ForeignKey('users.id'), nullable=False),
-        sa.Column('status', import_status, nullable=False, server_default='pending'),
-        sa.Column('options', JSONB, nullable=False, server_default='{}'),
-        sa.Column('file_path', sa.Text, nullable=True),
-        sa.Column('stats', JSONB, nullable=False, server_default='{}'),
-        sa.Column('error_message', sa.Text, nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
-    )
-    op.create_index('ix_import_jobs_user', 'context_import_jobs', ['org_id', 'user_id'])
-    op.create_index('ix_import_jobs_status', 'context_import_jobs', ['status'])
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS context_import_jobs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            org_id UUID NOT NULL REFERENCES organizations(id),
+            user_id UUID NOT NULL REFERENCES users(id),
+            status import_job_status NOT NULL DEFAULT 'pending',
+            options JSONB NOT NULL DEFAULT '{}',
+            file_path TEXT,
+            stats JSONB NOT NULL DEFAULT '{}',
+            error_message TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            completed_at TIMESTAMPTZ
+        );
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_import_jobs_user ON context_import_jobs (org_id, user_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_import_jobs_status ON context_import_jobs (status)")
 
 
 def downgrade() -> None:
-    op.drop_table('context_import_jobs')
-    op.drop_table('context_export_jobs')
-
-    sa.Enum(name='import_job_status').drop(op.get_bind(), checkfirst=True)
-    sa.Enum(name='export_job_status').drop(op.get_bind(), checkfirst=True)
+    op.execute("DROP TABLE IF EXISTS context_import_jobs")
+    op.execute("DROP TABLE IF EXISTS context_export_jobs")
+    op.execute("DROP TYPE IF EXISTS import_job_status")
+    op.execute("DROP TYPE IF EXISTS export_job_status")
