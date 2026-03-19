@@ -1,4 +1,4 @@
-"""Add Google OAuth tokens table
+"""Drop Google OAuth tokens table (no longer needed — using client-side Picker)
 
 Revision ID: 010
 Revises: 009
@@ -16,6 +16,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Drop the table if it exists (was created in a prior version of this migration)
+    op.execute("DROP TABLE IF EXISTS google_oauth_tokens CASCADE")
+
+
+def downgrade() -> None:
+    # Recreate if rolling back
     op.create_table(
         'google_oauth_tokens',
         sa.Column('id', UUID(as_uuid=True), primary_key=True),
@@ -29,11 +35,3 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index('ix_google_oauth_tokens_user_id', 'google_oauth_tokens', ['user_id'], unique=True)
-    op.create_index('ix_google_oauth_tokens_org_id', 'google_oauth_tokens', ['org_id'])
-
-
-def downgrade() -> None:
-    op.drop_index('ix_google_oauth_tokens_org_id', table_name='google_oauth_tokens')
-    op.drop_index('ix_google_oauth_tokens_user_id', table_name='google_oauth_tokens')
-    op.drop_table('google_oauth_tokens')

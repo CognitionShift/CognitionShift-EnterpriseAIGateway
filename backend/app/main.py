@@ -123,7 +123,7 @@ from app.api.v1.api_keys import router as api_keys_router
 from app.api.v1.prompt_library import router as prompts_router
 from app.api.v1.registry import router as registry_router
 from app.api.v1.context import router as context_router
-from app.api.v1.google_drive import router as google_drive_router
+
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
@@ -148,7 +148,7 @@ app.include_router(api_keys_router, prefix="/api/v1")
 app.include_router(prompts_router, prefix="/api/v1")
 app.include_router(registry_router, prefix="/api/v1")
 app.include_router(context_router, prefix="/api/v1")
-app.include_router(google_drive_router, prefix="/api/v1")
+
 
 
 @app.get("/")

@@ -9,7 +9,6 @@ from app.models.file import File, FileChunk, KnowledgeBase
 from app.models.agent import AgentTemplate, AgentExecution
 from app.models.model_registry import RegisteredModel, ModelVersion, ModelAccess
 from app.models.context_job import ContextExportJob, ContextImportJob
-from app.models.google_oauth import GoogleOAuthToken
 
 __all__ = [
     "Organization", "Division", "Department", "Team",
@@ -18,5 +17,4 @@ __all__ = [
     "ApiKey", "AuditLog", "UsageLog",
     "RegisteredModel", "ModelVersion", "ModelAccess",
     "ContextExportJob", "ContextImportJob",
-    "GoogleOAuthToken",
 ]

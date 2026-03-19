@@ -33,10 +33,8 @@ class Settings(BaseSettings):
     # Google Gemini (optional)
     google_api_key: str = ""
 
-    # Google OAuth (Drive integration)
+    # Google Picker (client-side Drive file import — no server-side Drive access)
     google_oauth_client_id: str = ""
-    google_oauth_client_secret: str = ""
-    google_oauth_redirect_uri: str = ""
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://10.1.1.112:3000"]

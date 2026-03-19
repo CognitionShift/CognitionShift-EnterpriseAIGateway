@@ -68,6 +68,9 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile.prod
+      args:
+        - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+        - NEXT_PUBLIC_GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
     container_name: csgateway-frontend
     restart: unless-stopped
     depends_on:
