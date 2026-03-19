@@ -16,19 +16,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Export job status enum
-    export_status = sa.Enum(
-        'pending', 'running', 'completed', 'failed',
-        name='export_job_status',
-    )
-    export_status.create(op.get_bind(), checkfirst=True)
+    # Export job status enum (use raw SQL for IF NOT EXISTS support in async)
+    op.execute("DO $$ BEGIN CREATE TYPE export_job_status AS ENUM ('pending', 'running', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
 
     # Import job status enum
-    import_status = sa.Enum(
-        'pending', 'running', 'importing', 're_embedding', 'completed', 'failed',
-        name='import_job_status',
-    )
-    import_status.create(op.get_bind(), checkfirst=True)
+    op.execute("DO $$ BEGIN CREATE TYPE import_job_status AS ENUM ('pending', 'running', 'importing', 're_embedding', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+
+    export_status = sa.Enum('pending', 'running', 'completed', 'failed', name='export_job_status', create_type=False)
+    import_status = sa.Enum('pending', 'running', 'importing', 're_embedding', 'completed', 'failed', name='import_job_status', create_type=False)
 
     # Context export jobs
     op.create_table(
